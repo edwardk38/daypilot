@@ -2,7 +2,7 @@
    The app was first built as a Claude artifact, which provides `claude.use("db" | "user" | "sample")`.
    This file provides the same interface on our own stack:
      db     → Supabase table `app_state` (one JSON document per user, protected by row-level security)
-     user   → Supabase Auth (email magic link)
+     user   → Supabase Auth (email code, or link)
      sample → our server function /api/ai, which holds the Claude API key
    If Supabase isn't configured or the user isn't signed in, the app falls back to local-only storage. */
 (function(){
@@ -57,16 +57,30 @@
   /* ---- sign-in screen ---- */
   function signInScreen(){
     const el = document.createElement("div"); el.className="overlay"; el.id="signin"; el.style.cssText="background:var(--bg);z-index:60;padding:28px 22px;gap:14px;justify-content:center";
-    el.innerHTML = `<h1>Welcome</h1><p class="muted" style="margin:0">Sign in to sync your plans across your phone and laptop. We'll email you a link; no password needed.</p>
+    el.innerHTML = `<h1>Welcome</h1><p class="muted" style="margin:0">Sign in to sync your plans across your phone and laptop. We'll email you a code; no password needed.</p>
       <input id="siEmail" class="dump" type="email" autocomplete="email" placeholder="you@example.com" style="background:var(--surface)">
-      <button class="btn coral" id="siGo">Email me a sign-in link</button>
+      <button class="btn coral" id="siGo">Email me a code</button>
+      <input id="siCode" class="dump" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="Code from the email" style="background:var(--surface);display:none">
+      <button class="btn coral" id="siVerify" style="display:none">Sign in</button>
       <button class="btn text" id="siLocal">Use without an account (this device only)</button>
       <span class="tiny muted" id="siMsg"></span>`;
     document.getElementById("app").appendChild(el);
-    el.querySelector("#siGo").onclick = async () => {
-      const email = el.querySelector("#siEmail").value.trim(); if(!email) return;
+    const $ = (id) => el.querySelector(id), msg = (t) => { $("#siMsg").textContent = t; };
+    // A code (not just a link) because an iPhone home-screen app doesn't share sign-in with Safari,
+    // and email links always open in Safari. Typing the code signs in wherever it's typed.
+    $("#siGo").onclick = async () => {
+      const email = $("#siEmail").value.trim(); if(!email) return;
       const {error} = await sb.auth.signInWithOtp({email, options:{emailRedirectTo: location.origin}});
-      el.querySelector("#siMsg").textContent = error ? "Couldn't send the link: "+error.message : "Check your email for the sign-in link. You can close this tab.";
+      if(error) return msg("Couldn't send the code: "+error.message);
+      $("#siGo").textContent = "Send a new code"; $("#siGo").className = "btn text";
+      $("#siCode").style.display = ""; $("#siVerify").style.display = ""; $("#siCode").focus();
+      msg("Check your email for the code and type it here.");
+    };
+    $("#siVerify").onclick = async () => {
+      const email = $("#siEmail").value.trim(), code = $("#siCode").value.replace(/\D/g,""); if(!email || !code) return;
+      const {error} = await sb.auth.verifyOtp({email, token: code, type: "email"});
+      if(error) return msg("That code didn't work. Check it, or send a new one.");
+      location.reload();
     };
     el.querySelector("#siLocal").onclick = () => { localStorage.setItem("skipSignIn","1"); el.remove(); };
   }
