@@ -1,0 +1,14 @@
+{
+  "name": "Passport Planner",
+  "short_name": "Planner",
+  "description": "An ADHD-friendly planner that turns goals into small, startable steps, and rewards progress with travel.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F3F5F8",
+  "theme_color": "#14213D",
+  "icons": [
+    {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

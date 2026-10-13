@@ -1,0 +1,26 @@
+# Passport Planner — hosted version
+
+## Setup (one time)
+
+1. **Supabase**
+   - Create a project. In **SQL Editor**, paste `supabase/schema.sql` and run it.
+   - In **Authentication → URL Configuration**, set the Site URL to your Vercel address (and add `http://localhost:3000` for local testing).
+   - From **Project Settings → API**, copy the Project URL and the `anon` public key into `public/js/config.js`. Also note the `service_role` key (secret) for step 3.
+2. **Push notification keys** (for reminders): run `npx web-push generate-vapid-keys` once. Put the public key in `public/js/config.js` and both keys in Vercel (step 3).
+3. **Vercel** → import this GitHub repo → Settings → Environment Variables:
+   - `ANTHROPIC_API_KEY` — from the Anthropic Console (set a monthly spending limit there)
+   - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+   - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (e.g. `mailto:you@example.com`)
+   - `CRON_SECRET` — any long random string
+   Then redeploy.
+4. **Docs for Claude Code:** in the project brief on Claude.ai, export the **Design spec** tab as Markdown and save it as `docs/design-spec.md` (optionally the other tabs too).
+
+## Install on iPhone
+Open the site in **Safari** → Share → **Add to Home Screen**. Open it from the icon, sign in, then Itinerary → settings → **Turn on reminders**.
+
+## Bring your data from the Claude version
+In the Claude version: Itinerary → settings (gear) → **Export my data** → copy the text. Then open the hosted app at `/#import`, paste, and tap Import.
+
+## Notes
+- Without Supabase config the app still runs, saving only on the device.
+- `/api/*` functions run on Vercel. To test them locally, use `npx vercel dev`.

@@ -1,0 +1,9 @@
+{
+  "name": "adhd-planner",
+  "private": true,
+  "type": "module",
+  "description": "ADHD-friendly planner with a travel reward system. Static PWA in /public, serverless functions in /api.",
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}
