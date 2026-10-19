@@ -1,18 +1,19 @@
 # Design spec
 
-The app opens on one thing: the next step that fits your energy today. Ideas go into a no-questions Dump and get sorted later; deadlines get guaranteed room while interest decides the order of everything else; missed steps slide back to Later without penalty; and every step, on any day, moves you across the map. This spec turns Ed's requirements and the User research tab into concrete screens and rules.
+The app opens on one thing: the next step that fits your energy today. Ideas go into a no-questions Dump and get sorted later; deadlines get guaranteed room while interest decides the order of everything else; missed steps slide back to Later without penalty; and every start, on any day, counts. This spec turns Ed's requirements and the User research tab into concrete screens and rules.
+
+> **Pivot (Oct 19, 2026).** The travel reward theme (miles, flights, the map, passport and stamps, country pages, the Journey tab) was removed because it didn't motivate in practice. Progress feedback is now the completion moment, one start streak, and healing habit numbers. Don't reintroduce points, currencies or collectibles without asking Ed. This copy of the spec was updated to match; the Claude.ai original may still mention travel.
 
 ## Screens
 
-Five tabs, with Now as home. Mockups live on the [Key screens canvas](https://claude.ai/artifact/R9oMWHtUNJKBQNxoszvJTK).
+Four tabs, with Now as home. (The table below is from the first design round; later passes renamed Plan to Itinerary and Goals to Horizon.) Mockups live on the [Key screens canvas](https://claude.ai/artifact/R9oMWHtUNJKBQNxoszvJTK).
 
 | Tab | Job | What's on it |
 | --- | --- | --- |
-| Now (home) | Show the next step and where you are | Energy check-in; a "You're in Panama" map with a short Fly next board; one next-step card with its miles and Start; Not feeling it, Swap, Not now |
+| Now (home) | Show the next step | Energy check-in and the start streak counter; one next-step card with Start; Not feeling it, Swap, Not now |
 | Dump | Capture with zero effort, sort later | One box and voice; the app guesses type, size and due date; optional dread rating; habits tagged with how often; Clean-up mode for sorting on higher-energy days |
 | Plan | See the day and the calendar | Everything due or planned today; fixed events like classes, dinners and tests; Day, Week and Month views. Events are added through Dump |
-| Goals | Track long-term goals and habits | Goals as checkpoint routes with hours invested; Habits with weekly target, last 30 days, lifetime total and status tier |
-| Journey | The reward | Map with real country shapes and a departure board; Passport stamp book by continent, with flags |
+| Goals | Track long-term goals and habits | Goals as checkpoint routes with hours invested; Habits with weekly target, last 30 days, lifetime total and consistency level |
 
 ## Capture and clean-up
 
@@ -55,7 +56,7 @@ Once a day, Now asks one question: how's your energy? Three answers reshape the 
 | Steady | The normal plan | Keep moving |
 | Low | A "minimum day": 1 to 3 small steps, any truly urgent must-do shrunk to its smallest useful piece, plus a recharge block | End the day having done something |
 
-**Low days still count.** Every step earns miles on any day, and the end-of-day recap lists what got done, so a low day reads as "you did 2 things" rather than "you missed 6." Everything that didn't fit moves to Later without comment.
+**Low days still count.** Every step counts on any day (one 2-minute start keeps the start streak going), and the end-of-day recap lists what got done, so a low day reads as "you did 2 things" rather than "you missed 6." Everything that didn't fit moves to Later without comment.
 
 **Recharge blocks.** On low and steady days, the planner offers a short recharge activity, chosen by the user from a menu. Two options have research behind them:
 
@@ -101,46 +102,44 @@ Fatigue is common in adult ADHD: 62% of adults in one clinic sample met criteria
 
 - **Timing.** Naps are offered only before mid-afternoon, so they don't push a late bedtime later. Caffeine gets a gentle "earlier is better" reminder, since a large dose 6 hours before bed cut sleep by over an hour ([Drake et al., 2013](https://jcsm.aasm.org/doi/abs/10.5664/jcsm.3170)).
 - **Did that help?** After each recharge, one tap (yes, a little, not really). Over a few weeks, the app favors the recharges that work for this user.
-- **Always optional.** Users can pin, hide or add their own recharges. Each one earns a few miles.
+- **Always optional.** Users can pin, hide or add their own recharges.
 - **Energy pattern.** The planner learns when the user is sharpest and saves the hardest steps for those hours. After a peak day, it plans a lighter next day.
 - **Optional sleep support.** A wind-down reminder, a steady wake time, and morning outdoor light as a recharge. Never framed as treatment.
 
 ## Progress and checkpoints
 
-A far goal feels possible when the next checkpoint is close. Both the travel reward and real goals use the same structure: small sections, each with a visible count.
+A far goal feels possible when the next checkpoint is close. Goals and assignments use small sections, each with a visible count.
 
-- **Travel sections.** Each continent shows a count like 7/23 countries, and each large country a count of its regions. Finishing a section triggers a checkpoint reward: a full-page stamp, a new map color, or unlocking the next continent's hidden gems.
-- **Goal checkpoints.** A goal like "build the app in 7 days" becomes a journey of 4 to 6 checkpoints. The Goals screen shows only the current checkpoint in detail; later ones appear as stops on a route.
-- **Lifetime totals.** Places visited and steps done only ever go up, shown beside any streak so a bad week never erases progress.
-- **Near-miss nudges.** When a section is close ("2 countries left in Central America"), the app says so, turning "almost done" into a reason to start today.
+- **Goal checkpoints.** A goal like "build the app in 7 days" becomes a route of 4 to 6 checkpoints. The Goals screen shows only the current checkpoint in detail; later ones appear as stops on a route.
+- **Lifetime totals.** Steps done and habit days only ever go up, so a bad week never erases progress.
+- **Near-miss nudges.** When a checkpoint is close ("2 steps left in this checkpoint"), the app says so, turning "almost done" into a reason to start today.
 
-## Miles
+## Completion moment
 
-- **Earning.** Miles per step scale with the step's size and an optional dread rating (1 to 3), set at capture or in Clean-up. A small but intimidating task, like emailing a professor, pays well. Every step earns something on any day.
-- **Spending.** A trip's cost comes from the real great-circle distance between each country's main international airport, compressed on a curve so short hops stay quick and long hauls stay reachable. The real distance is shown as a fact.
-- **Pacing target.** A few steady days of work always reaches somewhere new. Remote places naturally cost more, which makes them aspirational.
-- **Data.** Free airport datasets supply coordinates, so no distances are guessed.
+Whenever a focus session ends, one calm screen:
 
-## Journey
+- **The step that was checked off,** shown on its route ("Step 2 of 4" with the route bar) when it belongs to an assignment or goal.
+- **Time worked,** from the timer.
+- **The next step,** with **Keep going** (starts it) and **Done for now**.
+- **Stopped early:** "You started. That counts." with the time worked. The stopped step keeps its place on Now, and Keep going offers the next other thing. Never framed as a failure; no confetti.
 
-**Map.** Real country boundaries from free boundary data. Visited countries are filled, reachable ones tinted, hidden gems marked. A departure board lists destinations closest first: flag, name, region, cost and status ("Ready to fly" or "80 more"), with tags for the user's pick and hidden gems. Crossing an ocean is a long-haul flight. Antarctica could be a bonus expedition.
+## Start streak
 
-**Country page.** Opens on arrival and stays readable from the passport:
+The only headline streak in the app, shown as a small counter in the Now header, not a banner.
 
-- A real photo with a credit line. Sources: Unsplash or Pexels, or Wikimedia Commons with the photographer and license named.
-- The stamp, showing the flag and arrival date.
-- Capital, population with its year (World Bank data), and languages.
-- Known for, must-see places with photos, Did you know, a food to try and how to say hello.
-- A link to the country's Wikipedia page, plus Add stamp to passport and See it on the map.
-
-**Passport.** Continent tabs with counts that sum to 195: North America 23, South America 12, Europe 44, Africa 54, Asia 48, Oceania 14. Each continent has region pages. Stamps show the flag instead of a date, which turns the passport into a flag-learning tool; unvisited slots show a "?" flag and the miles needed. Hidden gems and Islands & territories have their own pages. Stats: countries out of 195, hours focused, miles earned.
+- **A day counts** with one focus session of 2 minutes or more, or any check-off.
+- **Planned rest days** don't break it.
+- **One free miss per week** (Sunday to Saturday). A second miss that week ends it.
+- **When it ends:** the best streak and "Start a new one today." No red, no reset animation, no guilt copy.
 
 ## Habits
 
-- **Created in Dump.** Typing "meditate every day" is tagged as a habit, and the app asks how often (daily, or a number of days a week).
-- **Shown in Goals, under Habits.** The main number is this week against the target ("3 of 4"). Beside it: the last 30 days ("25 of 30"), a lifetime count, and a frequent-flyer status tier based on the last 30 days.
-- **Every number heals.** Weekly counts reset, the 30-day window rolls past old misses, and the lifetime count only goes up. No all-time percentages and no headline streak, since those make one miss permanent.
-- **Comeback bonus.** Returning after a gap is rewarded, so restarting feels like a win.
+- **Created in Dump, set up in Plan it.** How often: a number of days a week (any days), specific days, or several times a day.
+- **Several times a day:** named slots tied to a routine or a time ("After waking" and "Before bed", or "Breakfast", "Lunch", "Dinner"), each with its own optional reminder. Each slot is checked off separately and shows as dots (●●○) on Now, Itinerary and the habit page. The user sets the minimum number of slots for the day to count (default: all); weekly and 30-day numbers count days that met it.
+- **Shown in Horizon, under Habits.** The main number is this week against the target ("3 of 4"). Beside it: the last 30 days ("25 of 30"), a lifetime count, and a consistency level based on the last 30 days.
+- **Every number heals.** Weekly counts reset, the 30-day window rolls past old misses, and the lifetime count only goes up. No all-time percentages and no habit streaks, since those make one miss permanent. (The app's one streak is the start streak, which has a free miss every week.)
+- **Something came up.** On a habit's day, or the next morning, the user can tap Something came up and write a one-line note. Excused days don't count as misses in any habit number. If notes keep landing on the same weekday (3 or more in the last 6 weeks), the app suggests moving the habit off that day; nothing changes until the user confirms.
+- **Comeback.** Returning after a gap is acknowledged, so restarting feels like a win.
 
 ## Decisions from the click-through test
 
@@ -148,7 +147,6 @@ Ed's click-through test of the mockups produced these changes. Part A of the nex
 
 **Now**
 
-- The map shows only where the user is. Trips live in Journey.
 - One suggested step on top, then an "Or pick one" list of 3 or 4 compact rows, so the user can choose the step that pulls them most.
 - The step card describes what the step involves and exactly where to start. Time and place shrink to a small line.
 
@@ -168,7 +166,7 @@ Ed's click-through test of the mockups produced these changes. Part A of the nex
 
 **After the work**
 
-- **I already did this:** any task can be logged after the fact, with roughly when and how long, for full miles.
+- **I already did this:** any task can be logged after the fact, with roughly when and how long; it counts like any other.
 - **Debrief:** after a session or anytime on a goal, the user says what they actually did. The AI checks off matching steps, adds extra work done, and re-plans the rest.
 - **Missed days:** nothing piles up. The next day opens with "Yesterday was a rest day," the rules re-plan around deadlines, and the AI rebalances big assignments. If a deadline is at risk, it says so early and offers a lighter plan or an extension email draft.
 - **Finished goals and habits** are never deleted automatically: goals move to a Completed shelf; habits can be paused or retired and keep their lifetime count.
@@ -177,7 +175,6 @@ Ed's click-through test of the mockups produced these changes. Part A of the nex
 
 - Plan week and month views, with quick add from any date.
 - A Peak day, with a lighter day planned after it.
-- The interactive map (pan, zoom, tap any country) and a locked preview for unvisited countries: blurred photo, region, miles needed, a teaser fact, and "Make it my next trip." The flag stays hidden until arrival.
 - **Ask:** a chat with the app's AI, attached to a goal or task, for brainstorming, questions and outlines. It drafts and suggests; the user decides. Current facts need web search, with sources shown.
 - **Assignment upload:** the AI reads an assignment PDF (requirements, rubric, due date) and proposes plan options. Planned for v1.0, with the privacy note.
 
@@ -188,13 +185,12 @@ The last set of decisions before the design was locked.
 **Planning ahead**
 
 - Every card on Now has **Later today**, with quick time chips and an optional place. The step lands on Plan.
-- **On-time bonus:** about 1.5x miles for starting within 15 minutes of a time the user chose. It applies only to self-chosen times, and missing one never costs anything. This rewards following through on an if-then plan, one of the best-supported techniques in the research.
 - At the chosen time, a reminder offers **Start**, **Swap** or **Push 30 min**. Swapping still counts as keeping the plan, since showing up was the hard part.
 
 **Pausing and stopping**
 
 - **Pause** keeps the session open; a Resume card sits at the top of Now.
-- **Stop for today** opens a debrief: the user marks exactly what got done, earns miles for that work, and chooses (or lets the app choose) when the rest goes. The AI re-plans.
+- **Stop for today** opens a debrief: the user marks exactly what got done and chooses (or lets the app choose) when the rest goes. The AI re-plans.
 - Unplanned extra work is logged from the assignment's page.
 
 **Projects: Assignments, Goals, Habits, Shelf**
@@ -213,8 +209,8 @@ In v0.1, the AI split one dump ("start meditating consistently") into two items 
 
 **Dump captures, Clean-up thinks.**
 
-- **One dump is one ticket, always.** The box is a single line. The AI may fix an obvious typo; it never splits, labels or adds steps.
-- **Every ticket lands in Clean-up** on the Shelf.
+- **One dump is one item, always.** The box is a single line. The AI may fix an obvious typo; it never splits, labels or adds steps.
+- **Every dumped item lands in Clean-up** on the Shelf.
 - **In Plan it, the user leads and the AI asks.** The user picks the type first; the AI asks only what that type needs, then offers useful extras.
 - **Fast path:** a simple task takes three taps (Task, optional time, Add to Now). Chat is optional.
 
@@ -223,20 +219,17 @@ In v0.1, the AI split one dump ("start meditating consistently") into two items 
 - **Habit:** how often, which days, time of day, minimum that counts. Then a useful offer, such as a workout routine (goals, equipment, time available, a weekly split) or exploring meditation styles. On habit days only, Now shows a reminder at the chosen time with today's specifics ("Gym · Push day · 45 min" or "10 min · body scan"), with Start, Done and Skip today. The habit page holds stats and a chat to change the routine. Fitness suggestions are framed as general guidance, with a note to check with a professional if there is an injury or health condition.
 - **Assignment:** due date and feeling, then the AI's first question: "Do you have the instructions? Attach the document or describe it." With details, it proposes an editable plan. Without them, the assignment moves to Horizon marked **No plan yet**: a due-date countdown and a Build the plan button instead of a checkpoint route. No guessed steps.
 
-**Now and miles when details are missing**
+**Now when details are missing**
 
 - An unplanned assignment appears on Now as its own small step: "Set up the plan for your psych paper · 5 min." As the due date nears with no plan, the deadline backstop pins it.
 - No time given: default estimates by type (about 20 minutes for a task step, 30 for an assignment step), updated once real time is logged.
-- No feeling given: a neutral multiplier.
-- Habits: fixed miles per completion based on the minimum, plus a bonus for hitting the weekly target.
-- Finishing a Plan it earns about 10 miles, so planning never feels like unpaid work.
 
 **Plan it, in detail**
 
-- A fresh ticket shows only the user's words: no type, no minutes, never on Now. It can reach Now only after it is planned into Assignments, Goals or Habits.
+- A freshly dumped item shows only the user's words: no type, no minutes, never on Now. It can reach Now only after it is planned into Assignments, Goals or Habits.
 - **Understanding first:** the AI opens with one line ("Sounds like you want to build a consistent gym habit") and a **Not quite** chip for correcting it in the user's own words.
 - **Fixed fields need no AI:** how often, which days, time of day, due date, time estimate and feeling are plain form fields.
-- **Starting points:** after the type is picked, 3 or 4 tappable starters tailored to the ticket (for the gym: build a routine, pick days and times, ideas to make showing up easier), plus a text box that is always visible ("Or start your own…"). One AI request generates the starters. Assignments open with a fixed prompt to attach the instructions or describe them.
+- **Starting points:** after the type is picked, 3 or 4 tappable starters tailored to the item (for the gym: build a routine, pick days and times, ideas to make showing up easier), plus a text box that is always visible ("Or start your own…"). One AI request generates the starters. Assignments open with a fixed prompt to attach the instructions or describe them.
 - **Nothing silent:** anything the AI proposes (a name, a routine, a plan) appears as editable fields or a card to confirm. **Start over** resets a conversation that goes off track.
 - **Naming:** the last step suggests a clear name in an editable field; items can be renamed anytime on their own page, which also keeps the original dump text.
 
@@ -244,7 +237,7 @@ In v0.1, the AI split one dump ("start meditating consistently") into two items 
 
 The app's judgment comes from two layers, both written by us and adjustable anytime. No model is trained.
 
-- **Rules:** plain logic for priority, urgency, scheduling, miles and habits. Predictable, instant, free, and explainable to the user.
+- **Rules:** plain logic for priority, urgency, scheduling, streaks and habits. Predictable, instant, free, and explainable to the user.
 - **AI with instructions and context:** language and judgment, such as reading a dump, asking questions, building plans and choosing tips. It always works from what the user has said, their notes and the item's details.
 
 ### Urgency: slack
@@ -266,7 +259,7 @@ Every dated assignment or goal has a **slack** value: free hours before the dead
 5. Things marked Excited
 6. Everything else, soonest due first
 
-The ticket can show why something is first, such as "Due tomorrow" or "At risk."
+The Up next card can show why something is first, such as "Due tomorrow" or "At risk."
 
 ### When a deadline closes in
 
@@ -306,15 +299,14 @@ Itinerary's day view lists what's to place today beside a timeline; the user dra
 
 ## Design pass: Now (decided)
 
-- **Layout:** an illustrated header, the next step as a ticket, a "Your day" strip, "Also on deck" cards, and a note for today's events.
+- **Layout:** an illustrated header, the next step as a card, a "Your day" strip, "Also on deck" cards, and a note for today's events.
 - **Header art follows energy,** with characters and subtle motion (off when the phone asks for reduced motion): a beach with sunbathers for low, two joggers in a park for steady, two hikers climbing to a summit flag for peak. Placement of the energy control is still open: a chip on the header or a bar above the tabs.
-- **Trip progress inside the ticket:** "+40 mi gets you to Costa Rica," with a bar showing current miles and what the step adds.
-- **Ready to fly:** when miles cover the next destination, a banner with a Fly button appears at the top of Now.
-- **In progress:** the ticket turns dark with a green outline, a countdown ring, and Open, Pause and Done.
+- **Header:** the date, the energy chip and a small start streak counter.
+- **In progress:** the card turns dark with a green outline, a countdown ring, and Open, Pause and Done.
 - **"Your day" strip:** close plans merge into numbered groups with time ranges; tapping a group expands it. The swipeable time rail is reserved for the Itinerary day view.
-- **Done for the day:** a recap (steps, habits, hours focused, miles), "This time is yours. Resting is part of the plan," then an optional list drawn from the user's own habits, Someday ideas and a 2-minute plan for tomorrow.
+- **Done for the day:** a recap (steps, habits, hours focused), "This time is yours. Resting is part of the plan," then an optional list drawn from the user's own habits, Someday ideas and a 2-minute plan for tomorrow.
 - **Hours focused** count the time actually spent on the timer, not the estimate.
-- **Nav order:** Now · Itinerary · Dump · Horizon · Journey.
+- **Nav order:** Now · Itinerary · Dump · Horizon.
 
 **Sleep, light version (v1.0):** a one-tap morning question ("How'd you sleep?" Rough, Okay or Good, or an hours slider). After a short night the app suggests Low energy without forcing it, protects real deadlines and adds a nap or a walk to the recharge options. Sleep tips are general guidance, not medical advice; the care note covers rough nights that continue for weeks.
 
@@ -322,7 +314,7 @@ Itinerary's day view lists what's to place today beside a timeline; the user dra
 
 - **Summary card on top:** status (On track, Tight or At risk), due date, hours of work left against free hours, steps done.
 - **Tabs:** Plan · Notes · Chat, so the page never gets long.
-- **Plan as a route:** a dotted travel path; finished stops are checked, a plane marks "You are here." Any stop expands on tap to show its output, done-when and tip. The current step offers Start and Add to Now; other steps offer "Do this one instead" and "Already did it."
+- **Plan as a route:** a dotted path; finished stops are checked, a marker shows "You are here." Any stop expands on tap to show its output, done-when and tip. The current step offers Start and Add to Now; other steps offer "Do this one instead" and "Already did it."
 - **Edit plan:** drag to reorder, tap to rename or retime, remove or add steps; finished steps are locked. An "ask for a change" box lets the AI rework the plan, previewed before anything changes.
 - **Notes tab:** key points from chats, attached files, and the remembered personal process, all editable.
 - **Chat tab:** full height, remembers everything about the item, with Clear chat.
@@ -342,33 +334,9 @@ A short wizard, one decision per screen, with progress dots:
 1. **What is it?** The dumped words, the AI's one-line understanding with Not quite, then six type cards with icons and one-line descriptions.
 2. **Details:** only the fields that fit the type (days, time and minimum for habits; due date and feeling for assignments; and so on).
 3. **Want help?** Optional: tailored starters plus "Ask your own," with a prominent Skip. Assignments ask for the instructions here. Chat-style answers live inside this step.
-4. **Name it and send it:** a suggested, editable name, a summary, where it will show up, and the destination button with the planning reward.
+4. **Name it and send it:** a suggested, editable name, a summary, where it will show up, and the button that sends it there.
 
 Simple items stay fast: a task can finish on step 2 with "Add to Tasks."
-
-## Design pass: Country page (decided)
-
-- **Arrival is a postcard:** a photo on the front with the stamp (flag and date) and "Greetings from…"; flip it for a short note with the best facts and a hint at the next stop. Then "Read the travel guide."
-- **The travel guide** is the reference page, opened on arrival and whenever a country is revisited: a full-bleed hero photo, key stats, then sections down the page, with Add stamp, See it on the map, Fly back here (when visited) and Wikipedia.
-- **Locked preview:** blurred photo, hidden flag, a trip bar with miles and steps to go, one teaser fact, what unlocks on arrival, and Make it my next trip.
-
-### Content standard for every country
-
-Ed wants each country to feel rich: plenty of information and plenty of images. Every country meets this bar before it ships:
-
-| Part | Minimum |
-| --- | --- |
-| Photos | A hero photo, 4 to 6 must-see places each with a photo, and a gallery of at least 8 images (landscapes, cities, food, culture, wildlife) |
-| Key stats | Capital, population with year, languages, currency, area, and where it sits on the map |
-| Known for | 4 to 6 short tags |
-| Must-see places | 4 to 6, each with a one-line description |
-| Nature and geography | 2 or 3 highlights (volcanoes, reefs, rivers, climate) |
-| History snapshot | 3 to 5 key moments, one line each |
-| Culture | Food to try, how to say hello, a festival or tradition, music or art |
-| Wildlife | National animal or bird, plus one notable species |
-| Did you know? | At least 5 surprising facts, rotated on revisits |
-
-**Sourcing:** photos from Wikimedia Commons, Unsplash or Pexels with credits and licenses on each image; numbers from World Bank or UN data with the year shown; every fact checked against a reliable source before release. The AI can draft content, but nothing ships unchecked.
 
 ## Design pass: Plan it by type, Itinerary sync, and ideas (decided)
 
@@ -396,33 +364,29 @@ Ed wants each country to feel rich: plenty of information and plenty of images. 
 
 ## Later list
 
-- [ ] Decided: the tabs are Now · Dump · Itinerary · Horizon · Journey.
+- [ ] Decided: the tabs are Now · Itinerary · Dump · Horizon.
 - [ ] Pairing that starts a playlist automatically.
 - [ ] Importing class schedules and events from a calendar.
 - [ ] Social accountability and body doubling.
-- [ ] Antarctica as a bonus expedition.
-- [ ] Reward themes beyond travel.
-- [ ] Header scenes set in the current country or region, starting with regional scenery.
 - [ ] Sleep, medium level: wind-down reminder, steady wake time, and personal insights such as how sleep affects steps finished. Watch sleep data import much later; no sleep-stage tracking.
 
 ## Look and feel
 
-Calm by default, delightful at the payoff moments. The chosen direction is a clean, airline-style base: one sans-serif typeface, calm neutrals, navy and coral. Personality comes from soft illustration (the mountains-and-sun header) and the travel visuals, with hand-drawn touches only in small moments like the route label.
+Calm by default, delightful at the payoff moments. The chosen direction is a clean base: one sans-serif typeface, calm neutrals, navy and coral. Personality comes from soft illustration (the energy header scenes), with hand-drawn touches only in small moments like the route label.
 
 - **One focus per screen.** Now shows one card. Lists stay collapsed until tapped.
-- **Quiet base, rich rewards.** Task screens use a restrained palette and plenty of space; the Passport and stamp moments carry the color, motion and personality. Contrast between the two makes rewards feel special.
-- **Small surprises.** Occasional variety (a rare stamp design, a new fact, a seasonal map) keeps the app from going stale, the top abandonment reason in the research.
+- **Quiet base, warm payoffs.** Task screens use a restrained palette and plenty of space; the completion moment carries a little more color and warmth, kept calm.
+- **Small surprises.** Occasional variety (a new tip, a seasonal header scene) keeps the app from going stale, the top abandonment reason in the research.
 - **Friendly, plain language.** "Later," not "Overdue"; "Not today," not "Skip." No red for missed items.
 - **Reduced-motion and low-stimulation options** for days when animation is too much.
 
 ## Open design questions
 
 - [ ] Names for the three energy modes.
-- [ ] Decided: miles scale with step size and an optional dread rating, and every step earns something (see Miles).
 - [ ] Should the daily energy check-in ever be skipped, or asked only when the app opens before noon?
 - [ ] How many items can Later hold before it needs its own Clean-up prompt?
 - [ ] Which mood starters are on by default for a new user?
-- [ ] What appears on Now when there is genuinely nothing to do: free time, a recharge idea, or the Passport?
+- [ ] What appears on Now when there is genuinely nothing to do: free time or a recharge idea?
 
 ## Sources
 

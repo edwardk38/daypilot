@@ -1,4 +1,4 @@
-# Passport Planner — hosted version
+# Daypilot — hosted version
 
 ## Setup (one time)
 
