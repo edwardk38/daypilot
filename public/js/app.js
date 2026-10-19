@@ -6,7 +6,7 @@ const DOWL = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Satur
 /* ---------------- State ---------------- */
 // Older saves are read from the app's earlier storage names, so nothing on a device is lost.
 const KEY = "daypilot-v1", OLDKEYS = ["passport-planner-v02", "passport-planner-v01"];
-const fresh = () => ({v:2, items:[], energy:"steady", hoursMin:0});
+const fresh = () => ({v:2, items:[], energy:"steady", hoursMin:0, starts:{}});
 // Fields from the removed travel theme (miles, earned, location, visited, stamps) may still be in old saves.
 // Nothing reads them anymore; they're left in place, untouched.
 function migrate(o){
@@ -22,6 +22,7 @@ function migrate(o){
   // Dumped, not-yet-planned items used to be type "ticket".
   (o.items||[]).forEach(i => { if(i.type==="ticket") i.type = "unplanned"; });
   o.items = o.items || [];
+  backfillStarts(o);
   return o;
 }
 function load(){
@@ -63,7 +64,33 @@ function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("sh
 function todayStr(d){ d = d || new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 const itemById = id => S.items.find(i=>i.id===id);
 function dayStat(){ const t=todayStr(); S.day=S.day||{}; if(!S.day[t]){ S.day[t]={steps:0,habits:0,min:0}; const ks=Object.keys(S.day).sort(); while(ks.length>60) delete S.day[ks.shift()]; } return S.day[t]; }
-function logDone(kind){ const d=dayStat(); if(kind==="step") d.steps++; if(kind==="habit") d.habits++; }
+function logDone(kind){ const d=dayStat(); if(kind==="step") d.steps++; if(kind==="habit") d.habits++; markStart(); }
+
+/* ---------------- Start streak ----------------
+   A day counts with one focus session of 2+ minutes or any check-off (S.starts[date] = 1).
+   Planned rest days neither count nor break it. One free miss per Sunday–Saturday week; a second
+   miss in the same week ends it. Today is never a miss until it's over. */
+function markStart(date){ S.starts = S.starts || {}; S.starts[date || todayStr()] = 1; }
+function streakCalc(starts, restDays, today){
+  const days = Object.keys(starts||{}).filter(d=>d<=today).sort(); if(!days.length) return {current:0, best:0};
+  const rest = restDays||[]; let cur=0, best=0, wk=null, misses=0;
+  for(let d=days[0]; d<=today; d=shiftDay(d,1)){
+    const dt = new Date(d+"T12:00:00"), sun = shiftDay(d, -dt.getDay());
+    if(sun!==wk){ wk=sun; misses=0; }
+    if(starts[d]){ cur++; best=Math.max(best,cur); }
+    else if(d===today || rest.includes(dt.getDay())) continue;
+    else if(cur>0){ if(misses===0) misses++; else { misses++; cur=0; } }
+  }
+  return {current:cur, best};
+}
+function shiftDay(s,n){ const d=new Date(s+"T12:00:00"); d.setDate(d.getDate()+n); return todayStr(d); }
+// First run after the pivot: rebuild past days from activity the app already recorded.
+function backfillStarts(o){
+  if(o.starts) return; const st = {};
+  for(const [d,v] of Object.entries(o.day||{})) if(v && (v.steps>0 || v.habits>0 || v.min>=2)) st[d]=1;
+  for(const i of o.items||[]){ if(i.doneAt) st[todayStr(new Date(i.doneAt))]=1; for(const d of Object.keys((i.habit||{}).log||{})) st[d]=1; }
+  o.starts = st;
+}
 function addMin(n){ n=Math.max(0,Math.round(n||0)); S.hoursMin+=n; dayStat().min+=n; }
 function md(t){
   const lines = esc(t||"").replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/(^|\s)\*(\S[^*]*?)\*(?=\s|$)/g,"$1$2").split(/\n/);
@@ -185,6 +212,11 @@ function dayStrip(){
   if(stripOpen>=0 && groups[stripOpen]) open = `<div class="fact" style="margin-top:6px;display:flex;flex-direction:column;gap:4px">${groups[stripOpen].items.map(x=>`<span class="small"${x.done?' style="color:var(--muted);text-decoration:line-through"':""}><b>${fmtH(x.h)}</b> · ${esc(x.label)}</span>`).join("")}</div>`;
   return `<div class="card" style="gap:8px;padding:12px 14px 14px"><div class="row" style="justify-content:space-between"><b>Your day</b><button class="btn text" data-tab="itin" style="min-height:28px;padding:0;color:var(--blue);font-size:12px">Open Itinerary</button></div><div class="strip"><div class="sline"></div><div class="sdone" style="width:${pct(Math.min(Math.max(nh,s0),s1))}%"></div>${marks}${nowMark}</div>${open}</div>`;
 }
+function streakChip(){
+  const {current, best} = streakCalc(S.starts, S.restDays, todayStr());
+  const [big, small] = current ? [`${current} day${current===1?"":"s"}`, "start streak"] : best ? ["Start a new one today", `Best: ${best} day${best===1?"":"s"}`] : ["Start today", "start streak"];
+  return `<div class="nh-streak" role="status" aria-label="${current?`Start streak: ${big}`:`${big}. ${small}`}"><b>${big}</b><span>${small}</span></div>`;
+}
 function headerNow(){
   const lab = {low:"Low",steady:"Steady",peak:"Peak"}[S.energy];
   const date = new Date().toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});
@@ -192,6 +224,7 @@ function headerNow(){
   if(energyMenu) menu = `<div class="emenu" role="menu">${[["low","Low energy","Small steps first, a recharge built in"],["steady","Steady","Your normal plan"],["peak","Peak","Big steps first, more of the day"]].map(([k,l,s])=>`<button role="menuitemradio" aria-checked="${S.energy===k}" data-energy="${k}"><b>${l}</b><span>${s}</span></button>`).join("")}</div>`;
   return `<div class="nowhero"><div class="scenewrap">${SCENES[S.energy]}</div>
     <div class="nh-title"><h1>Now</h1><span>${date}</span></div>
+    ${streakChip()}
     <button class="nh-chip left" data-emenu aria-expanded="${energyMenu}" aria-label="Energy today: ${lab}. Change">Energy · ${lab} ${ico("chev",14)}</button>
     ${menu}</div>`;
 }

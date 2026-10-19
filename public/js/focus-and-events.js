@@ -79,6 +79,7 @@ function endFocus(kind){
   if(focus.hidden && kind!=="pause"){ focus.hidden=false; drawFocus(); }
   const info = refInfo(focus.ref); if(!info){ focus=null; persistFocus(); clearInterval(tick); render(); return; } const it = info.it; const r = remainingNow();
   const sessionMin = Math.max(0, Math.round((focus.start0 - r)/60));
+  if(focus.start0 - r >= 120) markStart(); // a 2-minute session counts toward the start streak, in real seconds
   const workedMin = Math.max(1, Math.round((focus.total - r)/60));
   clearInterval(tick);
   const target = focus.ref.kind==="step" ? info.step : it;
@@ -150,7 +151,7 @@ document.addEventListener("click", e => {
     if(d.hday!==undefined){ const k=+d.hday; const a=it.habit.days; it.habit.days = a.includes(k)?a.filter(x=>x!==k):a.concat(k).sort(); if(!it.habit.days.length) it.habit.days=[k]; save(); renderOv(); return; }
     if(d.hmin){ it.habit.minimum=+d.hmin; save(); renderOv(); return; }
     if(d.stepdone){ const s=it.steps.find(x=>x.id===d.stepdone); logDone("step"); completeStep(it,s,0); save(); toast("Step logged"); if(it.status==="done"){ closeOv(); toast(`${it.title} complete!`); } else renderOv(); return; }
-    if(d.complete){ it.status="done"; it.doneAt=new Date().toISOString(); save(); closeOv(); toast(`${it.title} complete!`); return; }
+    if(d.complete){ markStart(); it.status="done"; it.doneAt=new Date().toISOString(); save(); closeOv(); toast(`${it.title} complete!`); return; }
     if(d.taskdone){ logDone("step"); it.status="done"; it.pinned=false; it.doneAt=new Date().toISOString(); save(); closeOv(); toast("Logged"); return; }
     if(d.replan){ it.draft={type:null,minutes:null,due:"",feeling:null,days:[0,1,2,3,4,5,6],time:"",minimum:10,date:"",etime:"",title:""}; it.type="unplanned"; save(); openOv("plan", it.id); return; }
     if(d.delitem){ if(confirm(it.status==="done"?`Delete "${it.title}" forever?`:`Delete "${it.title}"?`)){ S.items=S.items.filter(x=>x.id!==it.id); save(); closeOv(); toast("Deleted"); } return; }
