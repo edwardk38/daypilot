@@ -22,7 +22,7 @@ function dueSoon(state, now){
     if(p.proposed || !soon(p.start)) continue;
     const it = (state.items||[]).find(i => i.id === p.ref.itemId); if(!it) continue;
     const step = p.ref.stepId && (it.steps||[]).find(s => s.id === p.ref.stepId);
-    out.push({ tag: `p:${p.ref.itemId}:${p.ref.stepId||""}:${t}:${p.start}`, title: step ? step.title : it.title, body: "You planned this for now. Start on time for bonus miles." });
+    out.push({ tag: `p:${p.ref.itemId}:${p.ref.stepId||""}:${t}:${p.start}`, title: step ? step.title : it.title, body: "You planned this for now. Start, swap, or push it." });
   }
   return out;
 }

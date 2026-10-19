@@ -1,33 +1,35 @@
 /* ================= v0.2: Dump → Clean-up → Plan it → Horizon / Now ================= */
-const PATH_CODES = ["MX","GT","BZ","SV","HN","NI","CR","PA","CU","JM","HT","DO"];
-const DOT_CODES = {KN:"dot_KN",DM:"dot_DM",VC:"dot_VC"};
-const INK_COLORS = ["#3B5BA9","#C8432B","#2C7A6E","#8A5A2B","#6B5B95","#B86A12"];
 const TYPES = {task:"Task",assignment:"Assignment",habit:"Habit",goal:"Goal",event:"Event",idea:"Someday idea"};
 const DOW = ["S","M","T","W","T","F","S"];
 const DOWL = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
 /* ---------------- State ---------------- */
-const KEY = "passport-planner-v02", OLDKEY = "passport-planner-v01";
-const fresh = () => ({v:2, items:[], energy:"steady", miles:0, earned:0, location:"PA", visited:["PA"], stamps:[{code:"PA",date:todayStr()}], hoursMin:0});
+// Older saves are read from the app's earlier storage names, so nothing on a device is lost.
+const KEY = "daypilot-v1", OLDKEYS = ["passport-planner-v02", "passport-planner-v01"];
+const fresh = () => ({v:2, items:[], energy:"steady", hoursMin:0});
+// Fields from the removed travel theme (miles, earned, location, visited, stamps) may still be in old saves.
+// Nothing reads them anymore; they're left in place, untouched.
 function migrate(o){
   if(!o) return fresh();
-  if(o.v===2) return o;
   if(o.v===1){
-    const n = Object.assign(fresh(), {energy:o.energy||"steady", miles:o.miles||0, earned:o.earned||0, location:o.location||"PA", visited:o.visited||["PA"], stamps:o.stamps||[], hoursMin:o.hoursMin||0});
+    const n = Object.assign(fresh(), {energy:o.energy||"steady", hoursMin:o.hoursMin||0});
     n.items = (o.items||[]).map(i => i.status==="done"
       ? {id:i.id, raw:i.title, title:i.title, type:"task", minutes:i.minutes||20, status:"done", doneAt:i.doneAt, created:i.created}
-      : {id:i.id, raw:i.title, title:i.title, type:"ticket", status:"open", created:i.created});
-    return n;
+      : {id:i.id, raw:i.title, title:i.title, type:"unplanned", status:"open", created:i.created});
+    o = n;
   }
-  return fresh();
+  if(o.v!==2) return fresh();
+  // Dumped, not-yet-planned items used to be type "ticket".
+  (o.items||[]).forEach(i => { if(i.type==="ticket") i.type = "unplanned"; });
+  o.items = o.items || [];
+  return o;
 }
 function load(){
-  try{ const r = localStorage.getItem(KEY); if(r) return migrate(JSON.parse(r)); }catch(e){}
-  try{ const r = localStorage.getItem(OLDKEY); if(r) return migrate(JSON.parse(r)); }catch(e){}
+  for(const k of [KEY, ...OLDKEYS]){ try{ const r = localStorage.getItem(k); if(r) return migrate(JSON.parse(r)); }catch(e){} }
   return fresh();
 }
 let S = load();
-let tab = "now", horView = "shelf", journeyView = "map", focus = null, ov = null;
+let tab = "now", horView = "shelf", focus = null, ov = null;
 let saveTimer = null, dbRef = null, sampleFn = null, canImages = false;
 function save(){
   try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){}
@@ -57,12 +59,11 @@ function save(){
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const uid = () => Math.random().toString(36).slice(2,10);
-const round5 = n => Math.max(5, Math.round(n/5)*5);
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toast.t); toast.t=setTimeout(()=>t.classList.remove("show"),2600); }
 function todayStr(d){ d = d || new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 const itemById = id => S.items.find(i=>i.id===id);
-function dayStat(){ const t=todayStr(); S.day=S.day||{}; if(!S.day[t]){ S.day[t]={steps:0,habits:0,min:0,mi:0}; const ks=Object.keys(S.day).sort(); while(ks.length>60) delete S.day[ks.shift()]; } return S.day[t]; }
-function award(mi, kind){ S.miles+=mi; S.earned+=mi; const d=dayStat(); d.mi+=mi; if(kind==="step") d.steps++; if(kind==="habit") d.habits++; }
+function dayStat(){ const t=todayStr(); S.day=S.day||{}; if(!S.day[t]){ S.day[t]={steps:0,habits:0,min:0}; const ks=Object.keys(S.day).sort(); while(ks.length>60) delete S.day[ks.shift()]; } return S.day[t]; }
+function logDone(kind){ const d=dayStat(); if(kind==="step") d.steps++; if(kind==="habit") d.habits++; }
 function addMin(n){ n=Math.max(0,Math.round(n||0)); S.hoursMin+=n; dayStat().min+=n; }
 function md(t){
   const lines = esc(t||"").replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/(^|\s)\*(\S[^*]*?)\*(?=\s|$)/g,"$1$2").split(/\n/);
@@ -84,8 +85,6 @@ function dueLabel(d){
   return "Due " + dt.toLocaleDateString(undefined,{month:"short",day:"numeric"});
 }
 function timeLabel(t){ if(!t) return ""; const [h,m]=t.split(":").map(Number); const d=new Date(); d.setHours(h,m,0,0); return d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); }
-function milesFor(min, feeling){ return round5((10 + 0.6*(min||20)) * (feeling==="scary" ? 1.3 : 1)); }
-const habitMiles = h => round5(10 + 0.5*((h.habit&&h.habit.minimum)||10));
 function weekDates(){ const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-t.getDay()); return [...Array(7)].map((_,k)=>{ const d=new Date(s); d.setDate(s.getDate()+k); return todayStr(d); }); }
 function habitStats(it){
   const h = it.habit||{days:[0,1,2,3,4,5,6],log:{}}; const log = h.log||{};
@@ -99,11 +98,9 @@ const ICON = {
   dump:'<path d="M4 13h4l1.5 2.5h5L16 13h4"/><path d="M5 13l2-7h10l2 7v6H5z"/>',
   itin:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
   hor:'<path d="M6 21V4"/><path d="M6 4h11l-2 4 2 4H6"/>',
-  jour:'<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
   trash:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
   back:'<path d="M15 6l-6 6 6 6"/>', close:'<path d="M6 6l12 12M18 6L6 18"/>',
   bulb:'<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/>',
-  lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   send:'<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/>',
   clip:'<path d="M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/>',
   check:'<path d="M5 12l5 5 9-10"/>', gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>', grip:'<circle cx="9" cy="6" r="1.3"/><circle cx="15" cy="6" r="1.3"/><circle cx="9" cy="12" r="1.3"/><circle cx="15" cy="12" r="1.3"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>', chev:'<path d="M6 9l6 6 6-6"/>', doc:'<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4M9 13h6M9 17h6"/>', bubble:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>', link:'<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>', repeat:'<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/>'
@@ -115,12 +112,12 @@ function actionables(){
   const out = [];
   for(const it of S.items){
     if(it.status!=="open") continue;
-    if(it.type==="task" && (it.pinned || (it.due && daysUntil(it.due)<=0))) out.push({kind:"task", itemId:it.id, title:it.title, minutes:it.minutes||20, due:it.due, at:it.at, feeling:it.feeling, remaining:it.remaining, miles:milesFor(it.minutes||20, it.feeling), pinned:!!it.pinned});
+    if(it.type==="task" && (it.pinned || (it.due && daysUntil(it.due)<=0))) out.push({kind:"task", itemId:it.id, title:it.title, minutes:it.minutes||20, due:it.due, at:it.at, feeling:it.feeling, remaining:it.remaining, pinned:!!it.pinned});
     if(it.type==="assignment" || it.type==="goal"){
       const steps = it.steps||[];
       const next = steps.find(s=>!s.done);
-      if(!steps.length) out.push({kind:"setup", itemId:it.id, title:`Set up the plan for ${it.title}`, parent:it.title, minutes:5, due:it.due, miles:10, pinned:!!it.pinned});
-      else if(next) out.push({kind:"step", itemId:it.id, stepId:next.id, title:next.title, parent:it.title, minutes:next.minutes||30, due:it.due, feeling:it.feeling, remaining:next.remaining, miles:milesFor(next.minutes||30, it.feeling), pinned:!!it.pinned});
+      if(!steps.length) out.push({kind:"setup", itemId:it.id, title:`Set up the plan for ${it.title}`, parent:it.title, minutes:5, due:it.due, pinned:!!it.pinned});
+      else if(next) out.push({kind:"step", itemId:it.id, stepId:next.id, title:next.title, parent:it.title, minutes:next.minutes||30, due:it.due, feeling:it.feeling, remaining:next.remaining, pinned:!!it.pinned});
     }
   }
   out.forEach(a=>{ if(!a.at && a.kind!=="setup"){ const p=placedAt({kind:a.kind,itemId:a.itemId,stepId:a.stepId}); if(p) a.at=p; } });
@@ -149,29 +146,16 @@ function render(){
   else if(tab==="dump") m.innerHTML = viewDump();
   else if(tab==="hor") m.innerHTML = viewHorizon();
   else if(tab==="itin") m.innerHTML = viewItinerary();
-  else if(tab==="journey") m.innerHTML = viewJourney();
   renderTabs();
-  if(tab==="journey" && journeyView==="map") initMap();
   if(tab==="itin") afterItinRender();
 }
 function renderTabs(){
-  const T = [["now","Now","now"],["itin","Itinerary","itin"],["dump","Dump","dump"],["hor","Horizon","hor"],["journey","Journey","jour"]];
+  const T = [["now","Now","now"],["itin","Itinerary","itin"],["dump","Dump","dump"],["hor","Horizon","hor"]];
   $("#tabs").innerHTML = T.map(([k,l,i]) => `<button data-tab="${k}" ${tab===k?'aria-current="page"':''}>${ico(i)}${l}</button>`).join("");
-}
-function hero(title, sub){
-  return `<div class="hero"><div class="sun"></div><div class="m1"></div><div class="m2"></div><div class="w"></div>
-  <div class="t"><h1>${title}</h1><span>${sub}</span></div>
-  <div class="milechip"><b>${S.miles} mi</b><span>to spend</span></div></div>`;
 }
 
 /* ---------------- Now ---------------- */
-const SCENES = {"low": "<svg width=\"390\" height=\"190\" viewBox=\"0 0 390 190\" preserveAspectRatio=\"xMidYMid slice\" aria-hidden=\"true\" class=\"scene\">\n<rect width=\"390\" height=\"190\" fill=\"#F6E7D3\"></rect>\n<circle cx=\"270\" cy=\"92\" r=\"34\" fill=\"#F4C48E\"></circle>\n<g class=\"drift\" style=\"animation-duration:30s\"><ellipse cx=\"90\" cy=\"38\" rx=\"24\" ry=\"8\" fill=\"#FFFFFF\" opacity=\".7\"></ellipse></g>\n<rect y=\"98\" width=\"390\" height=\"50\" fill=\"#A9CBDD\"></rect>\n<g class=\"wave\" stroke=\"#E2EFF5\" stroke-width=\"2\" stroke-linecap=\"round\"><path d=\"M30 112 h30 M120 120 h40 M220 110 h26 M300 124 h36 M60 134 h24 M170 138 h30\"></path></g>\n<path d=\"M-20 150 Q195 128 410 150 V190 H-20z\" fill=\"#EBD6B2\"></path>\n<path d=\"M300 172 L312 112\" stroke=\"#8A6A4A\" stroke-width=\"3\"></path>\n<path d=\"M276 118 Q312 92 348 108 Z\" fill=\"#E4826B\"></path><path d=\"M300 112 Q312 96 324 104\" stroke=\"#F4A48F\" stroke-width=\"2\" fill=\"none\"></path>\n<g><rect x=\"150\" y=\"166\" width=\"62\" height=\"9\" rx=\"3\" fill=\"#3B5BA9\"></rect>\n  <rect x=\"158\" y=\"161\" width=\"34\" height=\"8\" rx=\"4\" fill=\"#C68A5E\"></rect>\n  <rect x=\"164\" y=\"160\" width=\"14\" height=\"9\" rx=\"3\" fill=\"#C8432B\"></rect>\n  <circle cx=\"198\" cy=\"165\" r=\"5\" fill=\"#C68A5E\"></circle><path d=\"M192 161 q6 -7 12 0 z\" fill=\"#E9C46A\"></path></g>\n<g><rect x=\"222\" y=\"172\" width=\"62\" height=\"9\" rx=\"3\" fill=\"#E9C46A\"></rect>\n  <rect x=\"230\" y=\"167\" width=\"34\" height=\"8\" rx=\"4\" fill=\"#F0C8A0\"></rect>\n  <rect x=\"236\" y=\"166\" width=\"14\" height=\"9\" rx=\"3\" fill=\"#2C7A6E\"></rect>\n  <circle cx=\"270\" cy=\"171\" r=\"5\" fill=\"#F0C8A0\"></circle></g>\n</svg>", "steady": "<svg width=\"390\" height=\"190\" viewBox=\"0 0 390 190\" preserveAspectRatio=\"xMidYMid slice\" aria-hidden=\"true\" class=\"scene\">\n<rect width=\"390\" height=\"190\" fill=\"#DFE8F1\"></rect>\n<g class=\"drift\"><ellipse cx=\"70\" cy=\"40\" rx=\"26\" ry=\"9\" fill=\"#FFFFFF\" opacity=\".8\"></ellipse><ellipse cx=\"88\" cy=\"34\" rx=\"16\" ry=\"8\" fill=\"#FFFFFF\" opacity=\".8\"></ellipse></g>\n<g class=\"drift\" style=\"animation-duration:26s\"><ellipse cx=\"250\" cy=\"28\" rx=\"20\" ry=\"7\" fill=\"#FFFFFF\" opacity=\".7\"></ellipse></g>\n<circle cx=\"300\" cy=\"52\" r=\"24\" fill=\"#F2D4A4\"></circle>\n<path d=\"M0 120 Q90 92 190 112 T390 104 V190 H0z\" fill=\"#B9CFC0\"></path>\n<g fill=\"#7FA48E\"><circle cx=\"40\" cy=\"104\" r=\"16\"></circle><circle cx=\"62\" cy=\"98\" r=\"20\"></circle><circle cx=\"330\" cy=\"98\" r=\"18\"></circle><circle cx=\"352\" cy=\"104\" r=\"14\"></circle></g>\n<g fill=\"#6B5A48\"><rect x=\"60\" y=\"112\" width=\"4\" height=\"12\"></rect><rect x=\"329\" y=\"110\" width=\"4\" height=\"12\"></rect></g>\n<path d=\"M0 158 Q130 132 230 150 T390 140 V190 H0z\" fill=\"#A7C2AE\"></path>\n<path d=\"M-10 176 Q140 146 250 162 T400 150\" stroke=\"#EDE4D3\" stroke-width=\"16\" fill=\"none\" stroke-linecap=\"round\"></path>\n<g class=\"bob\"><g transform=\"translate(214 160) scale(1 1)\">\n  <circle cx=\"0\" cy=\"-31\" r=\"5\" fill=\"#C68A5E\"></circle>\n  <path d=\"M0 -26 L2 -12\" stroke=\"#C8432B\" stroke-width=\"6\" stroke-linecap=\"round\"></path>\n  <path d=\"M1 -22 L-6 -16 M1 -22 L8 -19\" stroke=\"#C68A5E\" stroke-width=\"2.4\" stroke-linecap=\"round\"></path>\n  <path d=\"M2 -12 L-5 -2 L-9 -1 M2 -12 L8 -4 L12 -6\" stroke=\"#34415E\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"></path>\n</g></g>\n<g class=\"bob2\"><g transform=\"translate(240 156) scale(1 1)\">\n  <circle cx=\"0\" cy=\"-31\" r=\"5\" fill=\"#F0C8A0\"></circle>\n  <path d=\"M0 -26 L2 -12\" stroke=\"#3B5BA9\" stroke-width=\"6\" stroke-linecap=\"round\"></path>\n  <path d=\"M1 -22 L-6 -16 M1 -22 L8 -19\" stroke=\"#F0C8A0\" stroke-width=\"2.4\" stroke-linecap=\"round\"></path>\n  <path d=\"M2 -12 L-5 -2 L-9 -1 M2 -12 L8 -4 L12 -6\" stroke=\"#34415E\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"></path>\n</g></g>\n</svg>", "peak": "<svg width=\"390\" height=\"190\" viewBox=\"0 0 390 190\" preserveAspectRatio=\"xMidYMid slice\" aria-hidden=\"true\" class=\"scene\">\n<rect width=\"390\" height=\"190\" fill=\"#D9E6F4\"></rect>\n<circle cx=\"70\" cy=\"44\" r=\"20\" fill=\"#F5D08F\"></circle>\n<g class=\"drift\" style=\"animation-duration:22s\"><ellipse cx=\"150\" cy=\"36\" rx=\"22\" ry=\"7\" fill=\"#FFFFFF\" opacity=\".8\"></ellipse></g>\n<path d=\"M-20 190 L80 112 L170 190 Z\" fill=\"#A3B6CD\"></path>\n<path d=\"M120 190 L280 18 L420 190 Z\" fill=\"#7F96B6\"></path>\n<path d=\"M262 38 L280 18 L298 38 L288 44 L276 40 Z\" fill=\"#F2F5F9\"></path>\n<path d=\"M170 190 L205 150 L188 130 L226 98 L214 80 L262 48 L276 26\" stroke=\"#FFFFFF\" stroke-width=\"2\" stroke-dasharray=\"4 4\" fill=\"none\" stroke-linecap=\"round\"></path>\n<path d=\"M280 18 V2\" stroke=\"#14213D\" stroke-width=\"2\"></path><path class=\"flag\" d=\"M281 3 h14 l-4 5 l4 5 h-14z\" fill=\"#C8432B\"></path>\n<g class=\"step\"><g transform=\"translate(212 134)\">\n  <rect x=\"-9\" y=\"-27\" width=\"7\" height=\"12\" rx=\"2\" fill=\"#2C7A6E\"></rect>\n  <circle cx=\"1\" cy=\"-32\" r=\"4.5\" fill=\"#C68A5E\"></circle>\n  <path d=\"M0 -27 L-1 -14\" stroke=\"#C8432B\" stroke-width=\"6\" stroke-linecap=\"round\"></path>\n  <path d=\"M-1 -14 L-5 -3 M-1 -14 L4 -5 L6 -3\" stroke=\"#34415E\" stroke-width=\"2.6\" stroke-linecap=\"round\" fill=\"none\"></path>\n  <path d=\"M1 -22 L8 -14 L10 -2\" stroke=\"#6B7A90\" stroke-width=\"1.6\" stroke-linecap=\"round\" fill=\"none\"></path>\n</g></g>\n<g class=\"step\"><g transform=\"translate(238 102)\">\n  <rect x=\"-9\" y=\"-27\" width=\"7\" height=\"12\" rx=\"2\" fill=\"#B86A12\"></rect>\n  <circle cx=\"1\" cy=\"-32\" r=\"4.5\" fill=\"#F0C8A0\"></circle>\n  <path d=\"M0 -27 L-1 -14\" stroke=\"#3B5BA9\" stroke-width=\"6\" stroke-linecap=\"round\"></path>\n  <path d=\"M-1 -14 L-5 -3 M-1 -14 L4 -5 L6 -3\" stroke=\"#34415E\" stroke-width=\"2.6\" stroke-linecap=\"round\" fill=\"none\"></path>\n  <path d=\"M1 -22 L8 -14 L10 -2\" stroke=\"#6B7A90\" stroke-width=\"1.6\" stroke-linecap=\"round\" fill=\"none\"></path>\n</g></g>\n</svg>"};
-function tripInfo(){
-  const un = Object.keys(PLACES).filter(c=>!S.visited.includes(c)).map(c=>({c,...costTo(c)})).sort((a,b)=>a.mi-b.mi);
-  const ready = un.filter(x=>x.mi<=S.miles);
-  const next = un.find(x=>x.mi>S.miles) || null;
-  return {un, ready, next};
-}
+const SCENES = {"low": "<svg width=\"390\" height=\"190\" viewBox=\"0 0 390 190\" preserveAspectRatio=\"xMidYMid slice\" aria-hidden=\"true\" class=\"scene\">\n<rect width=\"390\" height=\"190\" fill=\"#F6E7D3\"></rect>\n<circle cx=\"270\" cy=\"92\" r=\"34\" fill=\"#F4C48E\"></circle>\n<g class=\"drift\" style=\"animation-duration:30s\"><ellipse cx=\"90\" cy=\"38\" rx=\"24\" ry=\"8\" fill=\"#FFFFFF\" opacity=\".7\"></ellipse></g>\n<rect y=\"98\" width=\"390\" height=\"50\" fill=\"#A9CBDD\"></rect>\n<g class=\"wave\" stroke=\"#E2EFF5\" stroke-width=\"2\" stroke-linecap=\"round\"><path d=\"M30 112 h30 M120 120 h40 M220 110 h26 M300 124 h36 M60 134 h24 M170 138 h30\"></path></g>\n<path d=\"M-20 150 Q195 128 410 150 V190 H-20z\" fill=\"#EBD6B2\"></path>\n<path d=\"M300 172 L312 112\" stroke=\"#8A6A4A\" stroke-width=\"3\"></path>\n<path d=\"M276 118 Q312 92 348 108 Z\" fill=\"#E4826B\"></path><path d=\"M300 112 Q312 96 324 104\" stroke=\"#F4A48F\" stroke-width=\"2\" fill=\"none\"></path>\n<g><rect x=\"150\" y=\"166\" width=\"62\" height=\"9\" rx=\"3\" fill=\"#3B5BA9\"></rect>\n  <rect x=\"158\" y=\"161\" width=\"34\" height=\"8\" rx=\"4\" fill=\"#C68A5E\"></rect>\n  <rect x=\"164\" y=\"160\" width=\"14\" height=\"9\" rx=\"3\" fill=\"#C8432B\"></rect>\n  <circle cx=\"198\" cy=\"165\" r=\"5\" fill=\"#C68A5E\"></circle><path d=\"M192 161 q6 -7 12 0 z\" fill=\"#E9C46A\"></path></g>\n<g><rect x=\"222\" y=\"172\" width=\"62\" height=\"9\" rx=\"3\" fill=\"#E9C46A\"></rect>\n  <rect x=\"230\" y=\"167\" width=\"34\" height=\"8\" rx=\"4\" fill=\"#F0C8A0\"></rect>\n  <rect x=\"236\" y=\"166\" width=\"14\" height=\"9\" rx=\"3\" fill=\"#2C7A6E\"></rect>\n  <circle cx=\"270\" cy=\"171\" r=\"5\" fill=\"#F0C8A0\"></circle></g>\n</svg>", "steady": "<svg width=\"390\" height=\"190\" viewBox=\"0 0 390 190\" preserveAspectRatio=\"xMidYMid slice\" aria-hidden=\"true\" class=\"scene\">\n<rect width=\"390\" height=\"190\" fill=\"#DFE8F1\"></rect>\n<g class=\"drift\"><ellipse cx=\"70\" cy=\"40\" rx=\"26\" ry=\"9\" fill=\"#FFFFFF\" opacity=\".8\"></ellipse><ellipse cx=\"88\" cy=\"34\" rx=\"16\" ry=\"8\" fill=\"#FFFFFF\" opacity=\".8\"></ellipse></g>\n<g class=\"drift\" style=\"animation-duration:26s\"><ellipse cx=\"250\" cy=\"28\" rx=\"20\" ry=\"7\" fill=\"#FFFFFF\" opacity=\".7\"></ellipse></g>\n<circle cx=\"300\" cy=\"52\" r=\"24\" fill=\"#F2D4A4\"></circle>\n<path d=\"M0 120 Q90 92 190 112 T390 104 V190 H0z\" fill=\"#B9CFC0\"></path>\n<g fill=\"#7FA48E\"><circle cx=\"40\" cy=\"104\" r=\"16\"></circle><circle cx=\"62\" cy=\"98\" r=\"20\"></circle><circle cx=\"330\" cy=\"98\" r=\"18\"></circle><circle cx=\"352\" cy=\"104\" r=\"14\"></circle></g>\n<g fill=\"#6B5A48\"><rect x=\"60\" y=\"112\" width=\"4\" height=\"12\"></rect><rect x=\"329\" y=\"110\" width=\"4\" height=\"12\"></rect></g>\n<path d=\"M0 158 Q130 132 230 150 T390 140 V190 H0z\" fill=\"#A7C2AE\"></path>\n<path d=\"M-10 176 Q140 146 250 162 T400 150\" stroke=\"#EDE4D3\" stroke-width=\"16\" fill=\"none\" stroke-linecap=\"round\"></path>\n<g class=\"bob\"><g transform=\"translate(214 160) scale(1 1)\">\n  <circle cx=\"0\" cy=\"-31\" r=\"5\" fill=\"#C68A5E\"></circle>\n  <path d=\"M0 -26 L2 -12\" stroke=\"#C8432B\" stroke-width=\"6\" stroke-linecap=\"round\"></path>\n  <path d=\"M1 -22 L-6 -16 M1 -22 L8 -19\" stroke=\"#C68A5E\" stroke-width=\"2.4\" stroke-linecap=\"round\"></path>\n  <path d=\"M2 -12 L-5 -2 L-9 -1 M2 -12 L8 -4 L12 -6\" stroke=\"#34415E\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"></path>\n</g></g>\n<g class=\"bob2\"><g transform=\"translate(240 156) scale(1 1)\">\n  <circle cx=\"0\" cy=\"-31\" r=\"5\" fill=\"#F0C8A0\"></circle>\n  <path d=\"M0 -26 L2 -12\" stroke=\"#3B5BA9\" stroke-width=\"6\" stroke-linecap=\"round\"></path>\n  <path d=\"M1 -22 L-6 -16 M1 -22 L8 -19\" stroke=\"#F0C8A0\" stroke-width=\"2.4\" stroke-linecap=\"round\"></path>\n  <path d=\"M2 -12 L-5 -2 L-9 -1 M2 -12 L8 -4 L12 -6\" stroke=\"#34415E\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"></path>\n</g></g>\n</svg>", "peak": "<svg width=\"390\" height=\"190\" viewBox=\"0 0 390 190\" preserveAspectRatio=\"xMidYMid slice\" aria-hidden=\"true\" class=\"scene\">\n<rect width=\"390\" height=\"190\" fill=\"#D9E6F4\"></rect>\n<circle cx=\"70\" cy=\"44\" r=\"20\" fill=\"#F5D08F\"></circle>\n<g class=\"drift\" style=\"animation-duration:22s\"><ellipse cx=\"150\" cy=\"36\" rx=\"22\" ry=\"7\" fill=\"#FFFFFF\" opacity=\".8\"></ellipse></g>\n<path d=\"M-20 190 L80 112 L170 190 Z\" fill=\"#A3B6CD\"></path>\n<path d=\"M120 190 L280 18 L420 190 Z\" fill=\"#7F96B6\"></path>\n<path d=\"M262 38 L280 18 L298 38 L288 44 L276 40 Z\" fill=\"#F2F5F9\"></path>\n<path d=\"M170 190 L205 150 L188 130 L226 98 L214 80 L262 48 L276 26\" stroke=\"#FFFFFF\" stroke-width=\"2\" stroke-dasharray=\"4 4\" fill=\"none\" stroke-linecap=\"round\"></path>\n<path d=\"M280 18 V2\" stroke=\"#14213D\" stroke-width=\"2\"></path><path class=\"pennant\" d=\"M281 3 h14 l-4 5 l4 5 h-14z\" fill=\"#C8432B\"></path>\n<g class=\"step\"><g transform=\"translate(212 134)\">\n  <rect x=\"-9\" y=\"-27\" width=\"7\" height=\"12\" rx=\"2\" fill=\"#2C7A6E\"></rect>\n  <circle cx=\"1\" cy=\"-32\" r=\"4.5\" fill=\"#C68A5E\"></circle>\n  <path d=\"M0 -27 L-1 -14\" stroke=\"#C8432B\" stroke-width=\"6\" stroke-linecap=\"round\"></path>\n  <path d=\"M-1 -14 L-5 -3 M-1 -14 L4 -5 L6 -3\" stroke=\"#34415E\" stroke-width=\"2.6\" stroke-linecap=\"round\" fill=\"none\"></path>\n  <path d=\"M1 -22 L8 -14 L10 -2\" stroke=\"#6B7A90\" stroke-width=\"1.6\" stroke-linecap=\"round\" fill=\"none\"></path>\n</g></g>\n<g class=\"step\"><g transform=\"translate(238 102)\">\n  <rect x=\"-9\" y=\"-27\" width=\"7\" height=\"12\" rx=\"2\" fill=\"#B86A12\"></rect>\n  <circle cx=\"1\" cy=\"-32\" r=\"4.5\" fill=\"#F0C8A0\"></circle>\n  <path d=\"M0 -27 L-1 -14\" stroke=\"#3B5BA9\" stroke-width=\"6\" stroke-linecap=\"round\"></path>\n  <path d=\"M-1 -14 L-5 -3 M-1 -14 L4 -5 L6 -3\" stroke=\"#34415E\" stroke-width=\"2.6\" stroke-linecap=\"round\" fill=\"none\"></path>\n  <path d=\"M1 -22 L8 -14 L10 -2\" stroke=\"#6B7A90\" stroke-width=\"1.6\" stroke-linecap=\"round\" fill=\"none\"></path>\n</g></g>\n</svg>"};
 function timedToday(){
   const t=todayStr(), dow=new Date().getDay(); const out=[];
   const hr = s => { if(!s) return null; const [h,m]=s.split(":").map(Number); return h+m/60; };
@@ -202,67 +186,55 @@ function dayStrip(){
   return `<div class="card" style="gap:8px;padding:12px 14px 14px"><div class="row" style="justify-content:space-between"><b>Your day</b><button class="btn text" data-tab="itin" style="min-height:28px;padding:0;color:var(--blue);font-size:12px">Open Itinerary</button></div><div class="strip"><div class="sline"></div><div class="sdone" style="width:${pct(Math.min(Math.max(nh,s0),s1))}%"></div>${marks}${nowMark}</div>${open}</div>`;
 }
 function headerNow(){
-  const p = PLACES[S.location]; const tr = tripInfo();
   const lab = {low:"Low",steady:"Steady",peak:"Peak"}[S.energy];
   const date = new Date().toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});
-  const tripTxt = tr.ready.length ? `→ ${PLACES[tr.ready[0].c].flag} ready` : tr.next ? `→ ${PLACES[tr.next.c].flag} ${tr.next.mi-S.miles} mi` : "· all visited";
   let menu = "";
   if(energyMenu) menu = `<div class="emenu" role="menu">${[["low","Low energy","Small steps first, a recharge built in"],["steady","Steady","Your normal plan"],["peak","Peak","Big steps first, more of the day"]].map(([k,l,s])=>`<button role="menuitemradio" aria-checked="${S.energy===k}" data-energy="${k}"><b>${l}</b><span>${s}</span></button>`).join("")}</div>`;
   return `<div class="nowhero"><div class="scenewrap">${SCENES[S.energy]}</div>
     <div class="nh-title"><h1>Now</h1><span>${date}</span></div>
-    <div class="nh-miles"><b>${S.miles} mi</b><span>to spend</span></div>
     <button class="nh-chip left" data-emenu aria-expanded="${energyMenu}" aria-label="Energy today: ${lab}. Change">Energy · ${lab} ${ico("chev",14)}</button>
-    <button class="nh-chip right" data-tab="journey" aria-label="You are in ${esc(p.name)}. Open Journey"><span>${p.flag}</span><b>${esc(p.name)}</b><span class="muted">${tripTxt}</span></button>
     ${menu}</div>`;
-}
-function tripBar(a){
-  const tr = tripInfo(); const tgt = tr.next; if(!tgt || !a.miles) return "";
-  const have=S.miles, cost=tgt.mi, gain=a.miles; const p1=Math.min(100,have/cost*100), p2=Math.min(100,(have+gain)/cost*100);
-  const pl=PLACES[tgt.c];
-  return `<div class="tripbar"><span>+${gain} mi · ${have+gain>=cost?`gets you to <b>${pl.flag} ${esc(pl.name)}</b>`:`${Math.round(p2)}% of the way to ${pl.flag} ${esc(pl.name)}`}</span><div><i style="width:${p2}%;background:#F2B3A6"></i><i style="width:${p1}%"></i></div></div>`;
 }
 function viewNow(){
   const list = actionables(), habits = habitsToday();
-  const t = todayStr(); const ds = (S.day||{})[t] || {steps:0,habits:0,min:0,mi:0};
-  const tr = tripInfo();
+  const t = todayStr(); const ds = (S.day||{})[t] || {steps:0,habits:0,min:0};
   let b = "";
   // sleep check-in: mornings, once a day
   const hr = new Date().getHours();
   if(hr < 12 && !(S.sleep||{})[t]) b += `<div class="card" style="gap:8px;padding:12px 14px"><b>How'd you sleep?</b><div class="row" style="gap:6px">${[["rough","Rough"],["okay","Okay"],["good","Good"]].map(([k,l])=>`<button class="chipbtn" data-sleep="${k}" style="flex:1;text-align:center">${l}</button>`).join("")}</div></div>`;
   if(S.sleepHint===t && S.energy!=="low") b += `<div class="understand"><span style="flex:1">Short night. Want a lighter day? Small steps first, with a recharge built in.</span><button class="chipbtn on" data-energy="low" style="flex-shrink:0;min-height:34px">Low energy</button></div>`;
-  if(tr.ready.length){ const r=tr.ready[0], pl=PLACES[r.c]; b += `<div class="flybanner"><span style="font-size:30px">${pl.flag}</span><div style="flex:1;min-width:0"><b>${esc(pl.name)} is ready to fly</b><br><span>${r.mi} mi · you have ${S.miles}</span></div><button class="btn" data-place="${r.c}" style="background:#FF8A7E;color:#14213D;min-height:42px">Fly</button></div>`; }
   const picks = list.filter(a=>a.pinned), rest = list.filter(a=>!a.pinned);
   const order = picks.concat(rest);
   if(focus){
     const info = refInfo(focus.ref);
     if(info){ const R=26, C=2*Math.PI*R, r=remainingNow(), frac=Math.min(1,Math.max(0,1-r/focus.total));
-      b += `<div class="ticket active"><div class="tmain"><span class="label" style="color:#8FD3AE">Active${info.sub&&info.sub!=="Task"?" · "+esc(info.sub):""}</span><h2>${esc(info.title)}</h2><div class="row" style="gap:12px"><svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="${R}" fill="none" stroke="#2A3A5E" stroke-width="6"/><circle id="activeArc" cx="32" cy="32" r="${R}" fill="none" stroke="#8FD3AE" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(C*frac).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 32 32)"/></svg><div><span id="activeTime" style="font-size:28px;font-weight:700;font-variant-numeric:tabular-nums">${fmt(Math.max(r,-5999))}</span><br><span class="tiny" style="color:#A9B6D4">${r>=0?"left":"over"} · ${focus.running?"running":"paused"}</span></div></div></div>
+      b += `<div class="nextcard active"><div class="tmain"><span class="label" style="color:#8FD3AE">Active${info.sub&&info.sub!=="Task"?" · "+esc(info.sub):""}</span><h2>${esc(info.title)}</h2><div class="row" style="gap:12px"><svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="${R}" fill="none" stroke="#2A3A5E" stroke-width="6"/><circle id="activeArc" cx="32" cy="32" r="${R}" fill="none" stroke="#8FD3AE" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(C*frac).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 32 32)"/></svg><div><span id="activeTime" style="font-size:28px;font-weight:700;font-variant-numeric:tabular-nums">${fmt(Math.max(r,-5999))}</span><br><span class="tiny" style="color:#A9B6D4">${r>=0?"left":"over"} · ${focus.running?"running":"paused"}</span></div></div></div>
       <div class="tstub" style="border-color:#2F416B"><button class="btn" data-fopen style="background:#8FD3AE;color:#14213D;min-height:42px;width:76px">Open</button><button class="btn" data-ftoggle-card style="background:transparent;border:1.5px solid #3A4C78;color:#fff;min-height:38px;width:76px;font-size:13px">${focus.running?"Pause":"Resume"}</button><button class="btn" data-fdonecard style="background:transparent;border:1.5px solid #3A4C78;color:#fff;min-height:38px;width:76px;font-size:13px">Done</button></div></div>`; }
   } else if(order.length){
     const top = order[0];
-    b += `<div class="ticket"><div class="tmain"><span class="label">${top.pinned?"Your pick":top.kind==="setup"?"Planning step":"Up next"}${top.parent&&top.kind!=="setup"?" · "+esc(top.parent):""}</span><h2>${esc(top.title)}</h2>${top.kind==="setup"?`<span class="small" style="color:var(--ink2)">Share the instructions or describe it, and the app builds the steps with you.</span>`:""}<div class="tags">${actChips(top)}</div>${tripBar(top)}</div>
-      <div class="tstub"><b style="font-size:20px;color:var(--coral)">+${top.miles}</b><span class="tiny muted" style="margin-top:-6px">miles</span>${top.kind==="setup"?`<button class="btn coral" data-open="${top.itemId}" style="min-height:46px">Plan it</button>`:`<button class="btn coral" ${actAttr(top)} style="min-height:46px">Start</button><button class="btn text" data-lowsheet style="min-height:32px;font-size:12px;padding:0">Not feeling it</button>`}</div></div>`;
+    b += `<div class="nextcard"><div class="tmain"><span class="label">${top.pinned?"Your pick":top.kind==="setup"?"Planning step":"Up next"}${top.parent&&top.kind!=="setup"?" · "+esc(top.parent):""}</span><h2>${esc(top.title)}</h2>${top.kind==="setup"?`<span class="small" style="color:var(--ink2)">Share the instructions or describe it, and the app builds the steps with you.</span>`:""}<div class="tags">${actChips(top)}</div></div>
+      <div class="tstub">${top.kind==="setup"?`<button class="btn coral" data-open="${top.itemId}" style="min-height:46px">Plan it</button>`:`<button class="btn coral" ${actAttr(top)} style="min-height:46px">Start</button><button class="btn text" data-lowsheet style="min-height:32px;font-size:12px;padding:0">Not feeling it</button>`}</div></div>`;
   }
   b += dayStrip();
   // deck
   const deck = [];
-  if(!focus) order.slice(1).forEach(a=>deck.push({lab:a.pinned?"Your pick":a.due&&daysUntil(a.due)<=1?dueLabel(a.due):a.parent?esc(a.parent):"Task", col:a.pinned?"var(--coral)":"var(--amber)", title:a.title, meta:`${a.minutes} min · +${a.miles} mi`, attr:a.kind==="setup"?`data-open="${a.itemId}"`:actAttr(a)}));
-  else order.filter(a=>!isActive({kind:a.kind, itemId:a.itemId, stepId:a.stepId})).forEach(a=>deck.push({lab:a.pinned?"Your pick":"Up next", col:"var(--coral)", title:a.title, meta:`${a.minutes} min · +${a.miles} mi`, attr:`data-open="${a.itemId}"`}));
-  habits.forEach(h=>{ const r=(h.habit.routine||{})[new Date().getDay()]; deck.push({lab:(h.habit.time?timeLabel(h.habit.time)+" · ":"")+"Habit", col:"var(--blue)", title:h.title+(r?" · "+r:""), meta:`${h.habit.minimum||10} min · +${habitMiles(h)} mi`, attr:`data-hstart="${h.id}"`, done:h.id}); });
+  if(!focus) order.slice(1).forEach(a=>deck.push({lab:a.pinned?"Your pick":a.due&&daysUntil(a.due)<=1?dueLabel(a.due):a.parent?esc(a.parent):"Task", col:a.pinned?"var(--coral)":"var(--amber)", title:a.title, meta:`${a.minutes} min`, attr:a.kind==="setup"?`data-open="${a.itemId}"`:actAttr(a)}));
+  else order.filter(a=>!isActive({kind:a.kind, itemId:a.itemId, stepId:a.stepId})).forEach(a=>deck.push({lab:a.pinned?"Your pick":"Up next", col:"var(--coral)", title:a.title, meta:`${a.minutes} min`, attr:`data-open="${a.itemId}"`}));
+  habits.forEach(h=>{ const r=(h.habit.routine||{})[new Date().getDay()]; deck.push({lab:(h.habit.time?timeLabel(h.habit.time)+" · ":"")+"Habit", col:"var(--blue)", title:h.title+(r?" · "+r:""), meta:`${h.habit.minimum||10} min`, attr:`data-hstart="${h.id}"`, done:h.id}); });
   if(deck.length) b += `<div class="row" style="justify-content:space-between"><b>Also on deck</b><span class="tiny muted">${deck.length>2?"swipe":""}</span></div><div class="deck">${deck.map(c=>`<div class="dcard"><button ${c.attr} class="dbody"><span style="color:${c.col}">${c.lab}</span><b>${esc(c.title)}</b><em>${c.meta}</em></button>${c.done?`<button class="dcheck" data-hdone="${c.done}" aria-label="Mark ${esc(c.title)} done">${ico("check",14)}</button>`:""}</div>`).join("")}</div>`;
   // done for today
   if(!focus && !order.length && !habits.length){
-    const anyPlanned = S.items.some(i=>i.status!=="ticket" && i.type!=="ticket");
+    const anyPlanned = S.items.some(i=>i.type!=="unplanned");
     if(anyPlanned && (ds.steps||ds.habits)){
-      b += `<div class="donecard"><span class="tiny" style="color:#8FD3AE;font-weight:700">Done for today</span><b style="font-size:20px;line-height:1.25">That's everything on today's plan.</b><div class="row" style="gap:6px">${[[ds.steps,"steps"],[ds.habits,"habits"],[(ds.min/60).toFixed(1),"hrs focused"],["+"+ds.mi,"miles"]].map(([a,l])=>`<div class="dstat"><b>${a}</b><span>${l}</span></div>`).join("")}</div><span style="color:#E3E8F4;font-size:14px;line-height:1.45">This time is yours. Resting is part of the plan, and it counts. Rest refreshes most when you step away from work in your head too.</span></div>`;
+      b += `<div class="donecard"><span class="tiny" style="color:#8FD3AE;font-weight:700">Done for today</span><b style="font-size:20px;line-height:1.25">That's everything on today's plan.</b><div class="row" style="gap:6px">${[[ds.steps,"steps"],[ds.habits,"habits"],[(ds.min/60).toFixed(1),"hrs focused"]].map(([a,l])=>`<div class="dstat"><b>${a}</b><span>${l}</span></div>`).join("")}</div><span style="color:#E3E8F4;font-size:14px;line-height:1.45">This time is yours. Resting is part of the plan, and it counts. Rest refreshes most when you step away from work in your head too.</span></div>`;
       const opts = [];
-      S.items.filter(i=>i.type==="habit"&&i.status==="open"&&!(i.habit.log||{})[t]).slice(0,2).forEach(h=>opts.push({t:h.title, s:"A habit · not scheduled today", attr:`data-hstart="${h.id}"`, mi:habitMiles(h)}));
-      S.items.filter(i=>i.type==="idea"&&i.status==="open").slice(0,1).forEach(i=>opts.push({t:"Think about: "+i.title, s:"From your Someday ideas", attr:`data-open="${i.id}"`, mi:0}));
-      S.items.filter(i=>(i.type==="assignment"||i.type==="goal")&&i.status==="open").slice(0,1).forEach(i=>opts.push({t:"Get ahead on "+i.title, s:"Optional", attr:`data-open="${i.id}"`, mi:0}));
-      if(opts.length) b += `<div class="row" style="justify-content:space-between"><b>If you feel like it</b><span class="tiny muted">optional, all of it</span></div><div class="card" style="padding:4px 4px;gap:0">${opts.map(o=>`<button class="pick" ${o.attr} style="border-radius:12px"><span class="grow"><span class="t">${esc(o.t)}</span><span class="m">${o.s}</span></span>${o.mi?`<span class="mi">+${o.mi}</span>`:""}</button>`).join("")}</div>`;
+      S.items.filter(i=>i.type==="habit"&&i.status==="open"&&!(i.habit.log||{})[t]).slice(0,2).forEach(h=>opts.push({t:h.title, s:"A habit · not scheduled today", attr:`data-hstart="${h.id}"`}));
+      S.items.filter(i=>i.type==="idea"&&i.status==="open").slice(0,1).forEach(i=>opts.push({t:"Think about: "+i.title, s:"From your Someday ideas", attr:`data-open="${i.id}"`}));
+      S.items.filter(i=>(i.type==="assignment"||i.type==="goal")&&i.status==="open").slice(0,1).forEach(i=>opts.push({t:"Get ahead on "+i.title, s:"Optional", attr:`data-open="${i.id}"`}));
+      if(opts.length) b += `<div class="row" style="justify-content:space-between"><b>If you feel like it</b><span class="tiny muted">optional, all of it</span></div><div class="card" style="padding:4px 4px;gap:0">${opts.map(o=>`<button class="pick" ${o.attr} style="border-radius:12px"><span class="grow"><span class="t">${esc(o.t)}</span><span class="m">${o.s}</span></span></button>`).join("")}</div>`;
     } else {
-      const tickets = S.items.filter(i=>i.type==="ticket").length, tasks = S.items.filter(i=>i.type==="task"&&i.status==="open").length;
-      b += `<div class="empty">${tickets?`<h2>${tickets} thing${tickets>1?"s":""} waiting in Clean-up</h2><p class="muted small" style="margin:0">Plan one and it can show up here.</p><button class="btn coral" data-hor="shelf">Go to Clean-up</button>`
+      const unplanned = S.items.filter(i=>i.type==="unplanned").length, tasks = S.items.filter(i=>i.type==="task"&&i.status==="open").length;
+      b += `<div class="empty">${unplanned?`<h2>${unplanned} thing${unplanned>1?"s":""} waiting in Clean-up</h2><p class="muted small" style="margin:0">Plan one and it can show up here.</p><button class="btn coral" data-hor="shelf">Go to Clean-up</button>`
         : tasks?`<h2>Nothing picked for now</h2><p class="muted small" style="margin:0">You have ${tasks} task${tasks>1?"s":""}. Add one to Now when you're ready.</p><button class="btn coral" data-hor="task">Open Tasks</button>`
         :`<h2>Nothing planned yet</h2><p class="muted small" style="margin:0">Dump whatever's on your mind. You'll plan it on the Shelf, then it shows up here.</p><button class="btn coral" data-tab="dump">Go to Dump</button>`}</div>`;
     }
@@ -283,60 +255,7 @@ function lowSheet(){
   el.querySelectorAll("[data-lowkind]").forEach(btn=>btn.addEventListener("click",()=>{ const k=kinds.find(x=>x[0]===btn.dataset.lowkind); $("#lowTips").innerHTML=`<div class="card" style="gap:8px;background:var(--bg)"><b>${k[1]}: try one</b>${k[3].map(t=>`<span class="small">· ${esc(t)}</span>`).join("")}<button class="btn coral" data-fivemin style="margin-top:4px">Then start with 5 minutes</button></div>`; }));
 }
 let stripOpen = -1, energyMenu = false;
-function viewNow_old(){
-  const list = actionables(), habits = habitsToday();
-  const date = new Date().toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});
-  const p = PLACES[S.location];
-  const reach = Object.keys(PLACES).filter(c=>!S.visited.includes(c)).map(c=>({c,...costTo(c)})).sort((a,b)=>a.mi-b.mi);
-  const ready = reach.filter(r=>r.mi<=S.miles);
-  const seg = ["low","steady","peak"].map(e=>`<button data-energy="${e}" aria-pressed="${S.energy===e}">${e==="low"?"Low energy":e[0].toUpperCase()+e.slice(1)}</button>`).join("");
-  let b = "";
-  if(focus){ const info = refInfo(focus.ref); if(info) b += `<div class="activecard"><div style="flex:1;min-width:0"><span class="tiny" style="color:#8FD3AE;font-weight:700">ACTIVE · ${focus.running?"timer running":"paused"}</span><br><b style="font-size:16px">${esc(info.title)}</b><br><span class="small" id="activeTime" style="color:#C5CEE6">${fmt(Math.max(remainingNow(),-5999))} ${remainingNow()>=0?"left":"over"}</span></div><div style="display:flex;flex-direction:column;gap:6px"><button class="btn" data-fopen style="background:#8FD3AE;color:#14213D;min-height:40px">Open</button><button class="btn" data-fdonecard style="background:transparent;color:#fff;border:1.5px solid #3A4C78;min-height:40px">Done</button></div></div>`; }
-  b += `<div class="seg" role="group" aria-label="Energy today">${seg}</div>`;
-  b += `<button class="pick" data-tab="journey" style="padding:10px 14px"><span style="font-size:26px">${p.flag}</span><span class="grow"><span class="t">You're in ${esc(p.name)}</span><span class="m">${ready.length ? `Ready to fly: ${esc(PLACES[ready[0].c].name)}${ready.length>1?`, plus ${ready.length-1} more`:""}` : reach.length ? `Next stop: ${esc(PLACES[reach[0].c].name)}, ${reach[0].mi - S.miles} mi to go` : "Every stop visited"}</span></span>${ready.length?'<span class="ready">Ready</span>':''}</button>`;
-  const events = S.items.filter(i=>i.type==="event" && i.status==="open" && i.event && i.event.date===todayStr());
-  if(events.length) b += `<div class="card" style="gap:4px"><span class="label" style="color:var(--blue)">Today's plans</span>${events.map(e=>`<span class="small"><b>${esc(timeLabel(e.event.time))||"Today"}</b> · ${esc(e.title)}${e.feeling==="excited"?' <span class="chip exc">Excited</span>':e.feeling==="scary"?' <span class="chip scary">Dreading</span>':""}</span>`).join("")}</div>`;
-  if(habits.length){
-    b += `<div class="row" style="justify-content:space-between"><b>Habits today</b><span class="tiny muted">${habits.length} left</span></div>`;
-    b += habits.map(h=>{ const r = (h.habit.routine||{})[new Date().getDay()]; return `<div class="item" style="gap:8px"><div class="row"><span style="color:var(--blue)">${ico("repeat",18)}</span><button data-open="${h.id}" style="border:none;background:none;text-align:left;padding:0;flex:1;display:flex;flex-direction:column"><span style="font-weight:700">${h.habit.time?esc(timeLabel(h.habit.time))+" · ":""}${esc(h.title)}</span><span class="tiny muted">${r?esc(r)+" · ":""}${h.habit.minimum||10} min · +${habitMiles(h)} mi</span></button></div><div class="row" style="gap:6px">${startBtn({kind:"habit",itemId:h.id})}<button class="btn ghost" data-hdone="${h.id}" style="flex:1;min-height:40px">Done</button><button class="btn text" data-hskip="${h.id}" style="min-height:40px">Skip today</button></div></div>`; }).join("");
-  }
-  const picks = list.filter(a=>a.pinned), rest = list.filter(a=>!a.pinned);
-  if(picks.length){
-    b += `<div class="row" style="justify-content:space-between"><b>My picks</b><span class="tiny muted">you added these</span></div>`;
-    b += picks.map(a=>pickRow(a, true)).join("");
-  }
-  if(rest.length){
-    const top = rest[0];
-    b += `<div class="step"><div class="main">
-      <span class="label">${top.kind==="setup"?"Planning step":"Suggested next"}${top.parent&&top.kind!=="setup"?" · "+esc(top.parent):""}</span>
-      <h2>${esc(top.title)}</h2>
-      ${top.kind==="setup"?`<span class="small" style="color:var(--ink2)">Share the instructions or describe it, and the app builds the steps with you.</span>`:""}
-      <div class="tags">${actChips(top)}</div>
-    </div><div class="perf"></div><div class="stub"><span class="mi">+${top.miles} mi</span>${top.kind==="setup"?`<button class="btn coral" data-open="${top.itemId}">Plan it</button>`:startBtn(top,true)}</div></div>`;
-    if(rest.length>1){
-      b += `<div class="row" style="justify-content:space-between"><b>Or pick one</b><span class="tiny muted">whatever pulls you</span></div>`;
-      b += rest.slice(1,6).map(a=>pickRow(a,false)).join("");
-    }
-  }
-  if(!list.length){
-    const tickets = S.items.filter(i=>i.type==="ticket").length, tasks = S.items.filter(i=>i.type==="task"&&i.status==="open").length;
-    b += `<div class="empty">${tickets?`<h2>${tickets} thing${tickets>1?"s":""} waiting in Clean-up</h2><p class="muted small" style="margin:0">Plan one and it can show up here.</p><button class="btn coral" data-hor="shelf">Go to Clean-up</button>`
-      : tasks?`<h2>Nothing picked for now</h2><p class="muted small" style="margin:0">You have ${tasks} task${tasks>1?"s":""}. Add one to Now when you're ready to do it.</p><button class="btn coral" data-hor="task">Open Tasks</button>`
-      :`<h2>Nothing planned yet</h2><p class="muted small" style="margin:0">Dump whatever's on your mind. You'll plan it on the Shelf, then it can appear here.</p><button class="btn coral" data-tab="dump">Go to Dump</button>`}</div>`;
-  }
-  return hero("Now", date) + `<div class="pad">${b}</div>`;
-}
 function isActive(ref){ return focus && focus.ref.itemId===ref.itemId && (focus.ref.stepId||null)===(ref.stepId||null) && focus.ref.kind===ref.kind; }
-function startBtn(a, big){
-  const kind = a.kind||"task";
-  if(isActive({kind, itemId:a.itemId, stepId:a.stepId})) return `<button class="btn activebtn" data-fopen style="${big?"min-width:76px":"flex:1;min-height:40px"}">Active</button>`;
-  if(kind==="habit") return `<button class="btn coral" data-hstart="${a.itemId}" style="flex:1;min-height:40px">Start</button>`;
-  return `<button class="btn coral" ${actAttr(a)} style="${big?"min-width:76px":""}">Start</button>`;
-}
-function pickRow(a, pinned){
-  const active = isActive({kind:a.kind, itemId:a.itemId, stepId:a.stepId});
-  return `<div class="pick" style="padding:6px 6px 6px 12px">${pinned?`<button class="iconbtn" data-pin="${a.itemId}" aria-label="Remove from Now" style="width:36px;height:36px">${ico("close",16)}</button>`:""}<button ${a.kind==="setup"?`data-open="${a.itemId}"`:actAttr(a)} style="border:none;background:none;text-align:left;flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding:4px 0"><span class="t">${esc(a.title)}</span><span class="m">${a.parent&&a.kind!=="setup"?esc(a.parent)+" · ":""}${a.at?timeLabel(a.at)+" · ":""}${a.minutes} min${a.due?" · "+dueLabel(a.due):""}</span></button>${active?`<button class="btn activebtn" data-fopen style="min-height:38px;padding:0 12px">Active</button>`:`<span class="mi" style="padding-right:6px">+${a.miles} mi</span>`}</div>`;
-}
 function actAttr(a){ return a.kind==="setup" ? `data-open="${a.itemId}"` : `data-go-task="${a.itemId}" data-step="${a.stepId||""}"`; }
 function actChips(a){
   let c0 = a.at ? `<span class="chip blue">${timeLabel(a.at)}</span>` : "";
@@ -359,12 +278,12 @@ function viewDump(){
       <span class="tiny muted">Saved exactly as you wrote it, straight to Clean-up on the Shelf.</span>
     </div>
     ${recent.length?`<b>Recently dumped</b>`:""}
-    ${recent.map(i=>`<div class="item"><div class="top"><span class="title">${esc(i.type==="ticket"?i.raw:i.title)}</span>${i.type==="ticket"?`<button class="btn text" data-plan="${i.id}" style="min-height:36px;padding:0 6px;color:var(--blue)">Plan it</button>`:""}<button class="iconbtn" data-dumpdel="${i.id}" aria-label="Delete ${esc(i.type==="ticket"?i.raw:i.title)}" style="width:36px;height:36px">${ico("trash",18)}</button></div><span class="tiny muted">${i.type==="ticket"?"In Clean-up":"Planned · "+TYPES[i.type]+(i.status==="done"?" · done":"")}</span></div>`).join("")}
+    ${recent.map(i=>`<div class="item"><div class="top"><span class="title">${esc(i.type==="unplanned"?i.raw:i.title)}</span>${i.type==="unplanned"?`<button class="btn text" data-plan="${i.id}" style="min-height:36px;padding:0 6px;color:var(--blue)">Plan it</button>`:""}<button class="iconbtn" data-dumpdel="${i.id}" aria-label="Delete ${esc(i.type==="unplanned"?i.raw:i.title)}" style="width:36px;height:36px">${ico("trash",18)}</button></div><span class="tiny muted">${i.type==="unplanned"?"In Clean-up":"Planned · "+TYPES[i.type]+(i.status==="done"?" · done":"")}</span></div>`).join("")}
   </div>`;
 }
 function doDump(){
   const inp = $("#dumpIn"); const text = inp.value.replace(/\s+/g," ").trim(); if(!text){ inp.focus(); return; }
-  S.items.push({id:uid(), raw:text.slice(0,200), title:text.slice(0,200), type:"ticket", status:"open", created:Date.now()});
+  S.items.push({id:uid(), raw:text.slice(0,200), title:text.slice(0,200), type:"unplanned", status:"open", created:Date.now()});
   save(); inp.value=""; toast("Dumped to Clean-up"); render(); const n=$("#dumpIn"); if(n) n.focus();
 }
 
@@ -379,13 +298,13 @@ function viewHorizon(){
   return `<div class="pad" style="padding-top:20px;padding-bottom:4px"><h1>Horizon</h1><div class="seg" style="gap:2px">${seg.replace(/<button /g,'<button style="font-size:13px;padding:0 2px" ')}</div></div><div class="pad" style="padding-top:6px">${body}</div>`;
 }
 function viewShelf(){
-  const tickets = S.items.filter(i=>i.type==="ticket").sort((a,b)=>b.created-a.created);
+  const unplanned = S.items.filter(i=>i.type==="unplanned").sort((a,b)=>b.created-a.created);
   const ideas = S.items.filter(i=>i.type==="idea" && i.status==="open");
-  const done = S.items.filter(i=>i.status==="done" && i.type!=="ticket").sort((a,b)=>(b.doneAt||"").localeCompare(a.doneAt||"")).slice(0,8);
+  const done = S.items.filter(i=>i.status==="done" && i.type!=="unplanned").sort((a,b)=>(b.doneAt||"").localeCompare(a.doneAt||"")).slice(0,8);
   const row = (i, label, sub, attr) => `<div class="item" style="flex-direction:row;align-items:center"><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="font-weight:600">${esc(label)}</span><span class="tiny muted">${sub}</span></div><button class="btn ink" ${attr} style="min-height:38px;padding:0 14px;font-size:13px">Plan it</button></div>`;
   const when = i => new Date(i.created).toLocaleDateString(undefined,{month:"short",day:"numeric"});
-  return `<div class="row" style="justify-content:space-between"><b>Clean-up${tickets.length?" · "+tickets.length:""}</b><span class="tiny muted">Everything you dump lands here</span></div>
-    ${tickets.length?tickets.map(i=>row(i,i.raw,"Dumped "+when(i),`data-plan="${i.id}"`)).join(""):`<p class="small muted" style="margin:0">Nothing to clean up. Dump a thought and it lands here.</p>`}
+  return `<div class="row" style="justify-content:space-between"><b>Clean-up${unplanned.length?" · "+unplanned.length:""}</b><span class="tiny muted">Everything you dump lands here</span></div>
+    ${unplanned.length?unplanned.map(i=>row(i,i.raw,"Dumped "+when(i),`data-plan="${i.id}"`)).join(""):`<p class="small muted" style="margin:0">Nothing to clean up. Dump a thought and it lands here.</p>`}
     <div class="row" style="justify-content:space-between;margin-top:6px"><b>Someday ideas</b><span class="tiny muted">Develop them over time</span></div>
     ${ideas.length?ideas.map(i=>{ const rd=i.readiness||[]; const clear=rd.filter(r=>(r.state||"").toLowerCase().startsWith("clear")).length; return row(i,i.title, rd.length?`${clear} of ${rd.length} parts clear`:"Not thought through yet", `data-open="${i.id}"`); }).join(""):`<p class="small muted" style="margin:0">Ideas you want to develop live here.</p>`}
     <div class="row" style="justify-content:space-between;margin-top:6px"><b>Completed</b><span class="tiny muted">Kept forever</span></div>
@@ -415,7 +334,7 @@ function viewTasks(){
   const today = ts.filter(i=>i.due && daysUntil(i.due)<=0).sort((a,b)=>(a.at||"99").localeCompare(b.at||"99"));
   const later = ts.filter(i=>i.due && daysUntil(i.due)>0).sort((a,b)=>a.due.localeCompare(b.due));
   const any = ts.filter(i=>!i.due).sort((a,b)=>a.created-b.created);
-  const row = i => `<div class="item" style="flex-direction:row;align-items:center;gap:8px;padding:8px 8px 8px 6px"><button class="iconbtn" data-taskcheck="${i.id}" aria-label="Mark ${esc(i.title)} done"><span class="checkcirc"></span></button><button data-open="${i.id}" style="border:none;background:none;text-align:left;flex:1;min-width:0;display:flex;flex-direction:column;padding:0"><span style="font-weight:600">${esc(i.title)}</span><span class="tiny muted">${i.at?timeLabel(i.at)+" · ":""}${i.due?dueLabel(i.due)+" · ":""}${i.minutes||20} min${i.noTime?" · no set time":""} · +${milesFor(i.minutes||20,i.feeling)} mi</span></button>${i.pinned?`<button class="chipbtn on" data-pin="${i.id}" style="min-height:34px">On Now</button>`:`<button class="chipbtn" data-pin="${i.id}" style="min-height:34px">Add to Now</button>`}</div>`;
+  const row = i => `<div class="item" style="flex-direction:row;align-items:center;gap:8px;padding:8px 8px 8px 6px"><button class="iconbtn" data-taskcheck="${i.id}" aria-label="Mark ${esc(i.title)} done"><span class="checkcirc"></span></button><button data-open="${i.id}" style="border:none;background:none;text-align:left;flex:1;min-width:0;display:flex;flex-direction:column;padding:0"><span style="font-weight:600">${esc(i.title)}</span><span class="tiny muted">${i.at?timeLabel(i.at)+" · ":""}${i.due?dueLabel(i.due)+" · ":""}${i.minutes||20} min${i.noTime?" · no set time":""}</span></button>${i.pinned?`<button class="chipbtn on" data-pin="${i.id}" style="min-height:34px">On Now</button>`:`<button class="chipbtn" data-pin="${i.id}" style="min-height:34px">Add to Now</button>`}</div>`;
   const sec = (t,arr) => arr.length ? `<div class="row" style="justify-content:space-between;margin-top:4px"><b>${t}</b><span class="tiny muted">${arr.length}</span></div>`+arr.map(row).join("") : "";
   return sec("Today", today) + sec("Coming up", later) + sec("Anytime", any);
 }
@@ -428,12 +347,13 @@ function viewHabits(){
       <div class="row" style="align-items:baseline;gap:6px"><b style="font-size:26px">${st.thisWeek} of ${st.target}</b><span class="small muted">this week</span></div>
       <div style="display:flex">${st.wk.map((d,k)=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px"><div style="width:28px;height:28px;border-radius:50%;${st.log[d]?"background:var(--blue)":d===t?"border:2px dashed var(--coral)":"background:var(--bg)"};display:flex;align-items:center;justify-content:center">${st.log[d]?ico("check",14,"#fff"):""}</div><span class="tiny muted">${DOW[k]}</span></div>`).join("")}</div>
       <div class="row" style="gap:8px"><div class="fact" style="flex:1;padding:8px 10px"><b>${st.last30} of 30</b><br><span class="tiny muted">last 30 days</span></div><div class="fact" style="flex:1;padding:8px 10px"><b>${st.total}</b><br><span class="tiny muted">days in total</span></div></div>
-      ${doneToday?`<span class="small" style="color:var(--green);font-weight:600">${ico("check",16)} Done today</span>`:`<button class="btn ghost" data-hdone="${h.id}">Mark done today · +${habitMiles(h)} mi</button>`}
+      ${doneToday?`<span class="small" style="color:var(--green);font-weight:600">${ico("check",16)} Done today</span>`:`<button class="btn ghost" data-hdone="${h.id}">Mark done today</button>`}
     </div>`; }).join("");
 }
 /* ---------------- Overlays: Plan it and item pages ---------------- */
 function openOv(kind, id){ ov = {kind, id}; renderOv(); }
 function closeOv(){ ov = null; const o=$("#ov"); if(o) o.remove(); render(); }
+function closeOverlay(){ const s=$("#scrim"); if(s) s.remove(); const o=$("#ov"); if(o) o.remove(); render(); }
 function ovShell(title, sub, inner){
   let el = $("#ov");
   if(!el){ el = document.createElement("div"); el.className="overlay"; el.id="ov"; el.style.background="var(--bg)"; el.setAttribute("role","dialog"); el.setAttribute("aria-modal","true"); $("#app").appendChild(el); }
@@ -505,9 +425,9 @@ function renderPlan(it){
       inner += `<div>${fieldLabel("When?")}<div style="margin-top:8px">${chipRow("when",[["today","Today"],["tomorrow","Tomorrow"],["week","This week"],["anytime","Anytime"],["date","Pick a date"]],d.when)}</div>${d.when==="date"?`<input type="date" class="dump" data-pfin="date" value="${esc(d.date)}" style="margin-top:8px">`:""}</div>`;
       inner += `<div>${fieldLabel("Needs a set time?")}<div style="margin-top:8px">${chipRow("settime",[["none","No time needed"],["pick","Pick a time"]],d.settime)}</div>${d.settime==="pick"?`<input type="time" class="dump" data-pfin="at" value="${esc(d.at)}" style="margin-top:8px">`:`<span class="tiny muted" style="display:block;margin-top:6px">It stays a checklist item and never takes a time block.</span>`}</div>`;
       inner += nameRow(it, d);
-      footer = btnS("More options", `data-pmore`) + btnP("Add to Tasks"+(it.planned?"":" · +10"), `data-finish="${it.id}"`);
+      footer = btnS("More options", `data-pmore`) + btnP("Add to Tasks", `data-finish="${it.id}"`);
     } else if(d.step===2){ inner += helpStep(it, "task"); footer = btnBack + btnS("Skip", `data-pnav="next"`) + btnP("Next", `data-pnav="next"`); }
-    else { inner += sendStep(it, d); footer = btnBack + btnP("Add to Tasks"+(it.planned?"":" · +10 mi"), `data-finish="${it.id}"`); }
+    else { inner += sendStep(it, d); footer = btnBack + btnP("Add to Tasks", `data-finish="${it.id}"`); }
   } else if(T==="event"){
     inner += stepHead(it, "When is it?");
     inner += `<div class="row" style="gap:10px;align-items:flex-start"><label style="flex:1">${fieldLabel("Date")}<input type="date" class="dump" data-pfin="date" value="${esc(d.date)}" style="margin-top:8px"></label><label style="flex:1">${fieldLabel("Time",true)}<input type="time" class="dump" data-pfin="etime" value="${esc(d.etime)}" style="margin-top:8px"></label></div>`;
@@ -515,14 +435,14 @@ function renderPlan(it){
     inner += feelSlider(d, "Looking forward to it?");
     if(+d.feelVal>=3) inner += `<span class="small" style="background:var(--green-soft);color:var(--green);padding:10px 12px;border-radius:12px">Work that day gets planned earlier so your evening stays free.</span>`;
     inner += nameRow(it, d);
-    footer = btnBack + btnP("Add to Itinerary"+(it.planned?"":" · +10 mi"), `data-finish="${it.id}"`, !d.date);
+    footer = btnBack + btnP("Add to Itinerary", `data-finish="${it.id}"`, !d.date);
   } else if(T==="idea"){
     inner += stepHead(it, "Catch the spark");
     inner += `<span class="small muted" style="margin-top:-8px">No plan needed yet. You can think it through whenever you're ready.</span>`;
     inner += `<label>${fieldLabel("Where did it come from?",true)}<input class="dump" data-pfin="source" value="${esc(d.source)}" placeholder="Paste a link, or name the article, video or conversation" style="margin-top:8px"></label>`;
     inner += `<label>${fieldLabel("First thought, while it's fresh",true)}<textarea class="notes" data-pfin="thought" rows="3" placeholder="What made you want to do this?" style="margin-top:8px;background:var(--surface);box-shadow:0 0 0 1.5px var(--line) inset">${esc(d.thought)}</textarea></label>`;
     inner += nameRow(it, d);
-    footer = btnS("Save to Shelf", `data-finish="${it.id}" data-then="shelf"`) + btnP("Think it through"+(it.planned?"":" · +10"), `data-finish="${it.id}" data-then="think"`);
+    footer = btnS("Save to Shelf", `data-finish="${it.id}" data-then="shelf"`) + btnP("Think it through", `data-finish="${it.id}" data-then="think"`);
   } else if(T==="assignment"){
     if(d.step===1){
       inner += stepHead(it, "The basics");
@@ -536,7 +456,7 @@ function renderPlan(it){
       inner += planChat(it, "assignment");
       if((it.steps||[]).length) inner += stepsEditor(it);
       footer = btnBack + btnS("Skip", `data-pnav="next"`) + btnP("Next", `data-pnav="next"`);
-    } else { inner += sendStep(it, d); footer = btnBack + btnP("Move to Assignments"+(it.planned?"":" · +10 mi"), `data-finish="${it.id}"`); }
+    } else { inner += sendStep(it, d); footer = btnBack + btnP("Move to Assignments", `data-finish="${it.id}"`); }
   } else if(T==="habit"){
     if(d.step===1){
       inner += stepHead(it, "How should it fit your week?");
@@ -545,7 +465,7 @@ function renderPlan(it){
       inner += `<div>${fieldLabel("Smallest version that counts")}<div style="margin-top:8px">${chipRow("minimum",[[2,"2 min"],[5,"5 min"],[10,"10 min"],[20,"20 min"],[30,"30 min"],[45,"45 min"],[60,"60 min"]],d.minimum)}</div></div>`;
       footer = btnBack + btnP("Next", `data-pnav="next"`, !d.days.length);
     } else if(d.step===2){ inner += helpStep(it, "habit"); if(it.routine && Object.keys(it.routine).length) inner += routineEditor(it); footer = btnBack + btnP((it.chat||[]).length?"Next":"Skip for now", `data-pnav="next"`); }
-    else { inner += sendStep(it, d); footer = btnBack + btnP("Move to Habits"+(it.planned?"":" · +10 mi"), `data-finish="${it.id}"`); }
+    else { inner += sendStep(it, d); footer = btnBack + btnP("Move to Habits", `data-finish="${it.id}"`); }
   } else if(T==="goal"){
     if(d.step===1){
       inner += stepHead(it, "Is it worth it right now?");
@@ -561,7 +481,7 @@ function renderPlan(it){
       if((it.steps||[]).length) inner += stepsEditor(it);
       inner += planChat(it, "goal");
       footer = btnBack + btnP("Next", `data-pnav="next"`);
-    } else { inner += sendStep(it, d); footer = btnBack + btnP("Move to Goals"+(it.planned?"":" · +10 mi"), `data-finish="${it.id}"`); }
+    } else { inner += sendStep(it, d); footer = btnBack + btnP("Move to Goals", `data-finish="${it.id}"`); }
   }
   planShell(it, inner, footer);
 }
@@ -618,7 +538,7 @@ function chatBlock(it, type){
     if(type==="assignment"||type==="goal"){
       if((chat.length||it.doc||it.notes) && !it.planBusy) h += `<button class="btn ghost" data-mkplan>${(it.steps||[]).length?"Rebuild the plan":"Make it a plan"}</button>`;
       if(it.planBusy) h += `<div class="thinking"><span class="dot3">Building steps</span></div>`;
-      if((it.steps||[]).length && it.type==="ticket") h += stepsEditor(it);
+      if((it.steps||[]).length && it.type==="unplanned") h += stepsEditor(it);
     }
     if(type==="habit"){
       if(chat.length && !it.planBusy) h += `<button class="btn ghost" data-mkroutine>${it.routine&&Object.keys(it.routine).length?"Rebuild the routine":"Turn this into a routine"}</button>`;
@@ -633,7 +553,7 @@ function stepsEditor(it){
   return `<div style="display:flex;flex-direction:column;gap:6px"><span class="tiny muted" style="font-weight:600">The plan · edit anything</span>${(it.steps||[]).map((s,k)=>`<div class="row" style="gap:6px">${s.done?`<span style="color:var(--green)">${ico("check",18)}</span>`:`<span class="tiny muted" style="width:18px;text-align:center">${k+1}</span>`}<input class="dump" data-stepedit="${s.id}" value="${esc(s.title)}" style="flex:1;min-height:40px;padding:8px 10px;background:var(--bg);font-size:14px"><span class="tiny muted" style="white-space:nowrap">${s.minutes||30}m</span><button class="iconbtn" data-stepdel="${s.id}" aria-label="Remove step" style="width:36px;height:36px">${ico("close",16)}</button></div>`).join("")}<button class="btn text" data-stepadd style="align-self:flex-start;min-height:36px;color:var(--blue)">+ Add a step</button></div>`;
 }
 function routineEditor(it){
-  const days = (it.draft&&it.type==="ticket"?it.draft.days:(it.habit&&it.habit.days))||[];
+  const days = (it.draft&&it.type==="unplanned"?it.draft.days:(it.habit&&it.habit.days))||[];
   return `<div style="display:flex;flex-direction:column;gap:6px"><span class="tiny muted" style="font-weight:600">Routine · shown in your reminder each day</span>${days.map(d=>`<label class="row small" style="gap:8px"><span style="width:34px;font-weight:600">${DOWL[d].slice(0,3)}</span><input class="dump" data-routine="${d}" value="${esc((it.routine||{})[d]||"")}" style="flex:1;min-height:40px;padding:8px 10px;background:var(--bg);font-size:14px"></label>`).join("")}</div>`;
 }
 
@@ -654,11 +574,11 @@ Reply with only a JSON object:
   it.aiBusy = false; it.correcting = false; save(); renderOv();
 }
 function contextFor(it){
-  const d = it.type==="ticket" ? it.draft||{} : it;
-  const type = it.type==="ticket" ? d.type : it.type;
-  let ctx = `Item: "${it.type==="ticket"?it.raw:it.title}" (original note: "${it.raw}"). Type: ${TYPES[type]||type}.`;
-  const due = it.type==="ticket"?d.due:it.due; if(due) ctx += ` Due: ${due}.`;
-  const days = it.type==="ticket"?d.days:(it.habit||{}).days; const time = it.type==="ticket"?d.time:(it.habit||{}).time; const min = it.type==="ticket"?d.minimum:(it.habit||{}).minimum;
+  const d = it.type==="unplanned" ? it.draft||{} : it;
+  const type = it.type==="unplanned" ? d.type : it.type;
+  let ctx = `Item: "${it.type==="unplanned"?it.raw:it.title}" (original note: "${it.raw}"). Type: ${TYPES[type]||type}.`;
+  const due = it.type==="unplanned"?d.due:it.due; if(due) ctx += ` Due: ${due}.`;
+  const days = it.type==="unplanned"?d.days:(it.habit||{}).days; const time = it.type==="unplanned"?d.time:(it.habit||{}).time; const min = it.type==="unplanned"?d.minimum:(it.habit||{}).minimum;
   if(type==="habit") ctx += ` Days: ${(days||[]).map(x=>DOWL[x]).join(", ")||"not set"}. Time: ${time||"not set"}. Minimum: ${min||10} min.`;
   if((it.steps||[]).length) ctx += ` Current steps: ${it.steps.map(s=>(s.done?"[done] ":"")+s.title).join("; ")}.`;
   if(d.cls||it.cls) ctx += ` Class: ${d.cls||it.cls}.`;
@@ -692,7 +612,7 @@ Write your next reply only.`;
 async function updateNotes(it, said, reply){
   if(!sampleFn){ it.notes = ((it.notes||"").trim() + "\n- " + said).trim(); save(); return; }
   it.notesBusy = true; if(ov && ov.id===it.id) renderOv();
-  const prompt = `You keep short notes for one item in an ADHD planner: "${it.type==="ticket"?it.raw:it.title}".
+  const prompt = `You keep short notes for one item in an ADHD planner: "${it.type==="unplanned"?it.raw:it.title}".
 Current notes:
 ${it.notes||"(none yet)"}
 Latest exchange:
@@ -720,7 +640,7 @@ Reply with only JSON: {"steps":[{"title": short concrete action (max 60 characte
 async function makeRoutine(){
   const it = itemById(ov.id); if(!it) return; it.planBusy = true; renderOv();
   const {ctx} = contextFor(it);
-  const days = (it.type==="ticket"?it.draft.days:it.habit.days)||[];
+  const days = (it.type==="unplanned"?it.draft.days:it.habit.days)||[];
   const prompt = `Make a simple weekly routine for this habit in an ADHD-friendly planner. ${ctx}
 Conversation:
 ${(it.chat||[]).map(m=>(m.role==="user"?"Person: ":"Helper: ")+m.content).join("\n")}
@@ -783,9 +703,8 @@ function finishPlan(it, then){
   if(d.type==="event"){ it.event = {date:d.date, time:d.etime||"", repeat:d.repeat}; it.feeling = feeling; }
   if(d.type==="idea"){ it.spark = {source:d.source||"", thought:d.thought||"", date:todayStr()}; if(d.thought && !(it.notes||"").includes(d.thought)) it.notes = ((it.notes||"")+"\n- First thought: "+d.thought).trim(); it.ideaTab = then==="think"?"think":"shape"; }
   delete it.draft;
-  let msg = `Planned: ${it.title}`;
-  if(!it.planned){ it.planned = true; award(10,"plan"); msg += " · +10 mi"; }
-  save(); toast(msg);
+  it.planned = true;
+  save(); toast(`Planned: ${it.title}`);
   if(it.type==="idea" && then==="think"){ ov = {kind:"item", id:it.id}; renderOv(); return; }
   const go = {task:["hor","task"],assignment:["hor","assignment"],goal:["hor","goal"],habit:["hor","habit"],event:["itin"],idea:["hor","shelf"]}[it.type];
   ov = null; const o=$("#ov"); if(o) o.remove(); tab = go[0]; if(go[1]) horView = go[1]; render();
@@ -801,7 +720,7 @@ function renderItem(it){
     h += `<div class="card" style="gap:10px"><b>Schedule</b><div style="display:flex;gap:4px">${DOW.map((l,k)=>`<button data-hday="${k}" aria-pressed="${it.habit.days.includes(k)}" aria-label="${DOWL[k]}" class="daybtn${it.habit.days.includes(k)?" on":""}">${l}</button>`).join("")}</div>
       <label class="tiny muted" style="font-weight:600">Reminder time<input type="time" class="dump" data-htime value="${esc(it.habit.time)}" style="margin-top:6px;background:var(--bg)"></label>
       <div><span class="tiny muted" style="font-weight:600">Minimum</span><div class="tags" style="margin-top:6px">${[2,5,10,20,30,45,60].map(m=>chipBtn(m+" min",`data-hmin="${m}"`,it.habit.minimum==m)).join("")}</div></div>
-      ${st.log[t]?`<span class="small" style="color:var(--green);font-weight:600">${ico("check",16)} Done today</span>`:`<button class="btn coral" data-hdone="${it.id}">Mark done today · +${habitMiles(it)} mi</button>`}</div>`;
+      ${st.log[t]?`<span class="small" style="color:var(--green);font-weight:600">${ico("check",16)} Done today</span>`:`<button class="btn coral" data-hdone="${it.id}">Mark done today</button>`}</div>`;
     it.routine = it.habit.routine;
     h += chatBlock(it, "habit");
   } else if(type==="assignment" || type==="goal"){
@@ -814,7 +733,7 @@ function renderItem(it){
     h += chatBlock(it, type);
     if(steps.length) h += stepsEditor(it);
   } else if(type==="task"){
-    h += `<div class="card"><span class="small">${it.at?timeLabel(it.at)+" · ":""}${it.minutes||20} min${it.due?" · "+dueLabel(it.due):""}${it.feeling?" · "+(it.feeling==="scary"?"feels scary":"excited"):""}</span>${it.status==="open"?`<div class="row" style="gap:8px">${isActive({kind:"task",itemId:it.id})?`<button class="btn activebtn" data-fopen style="flex:1">Active</button>`:`<button class="btn coral" data-go-task="${it.id}" data-step="" style="flex:1">Start · +${milesFor(it.minutes,it.feeling)} mi</button>`}<button class="btn ghost" data-pin="${it.id}" style="flex:1">${it.pinned?"On Now ✓":"Add to Now"}</button></div><button class="btn text" data-taskdone="${it.id}" style="min-height:36px;align-self:flex-start;padding:0">Already did it</button>`:""}</div>`;
+    h += `<div class="card"><span class="small">${it.at?timeLabel(it.at)+" · ":""}${it.minutes||20} min${it.due?" · "+dueLabel(it.due):""}${it.feeling?" · "+(it.feeling==="scary"?"feels scary":"excited"):""}</span>${it.status==="open"?`<div class="row" style="gap:8px">${isActive({kind:"task",itemId:it.id})?`<button class="btn activebtn" data-fopen style="flex:1">Active</button>`:`<button class="btn coral" data-go-task="${it.id}" data-step="" style="flex:1">Start</button>`}<button class="btn ghost" data-pin="${it.id}" style="flex:1">${it.pinned?"On Now ✓":"Add to Now"}</button></div><button class="btn text" data-taskdone="${it.id}" style="min-height:36px;align-self:flex-start;padding:0">Already did it</button>`:""}</div>`;
     h += chatBlock(it, "task");
   } else if(type==="idea"){
     const sp = it.spark||{};

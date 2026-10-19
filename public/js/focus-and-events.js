@@ -1,20 +1,10 @@
-/* ---------------- Distances ---------------- */
-function haversine(a,b){ const R=6371, t=x=>x*Math.PI/180; const dLa=t(b.lat-a.lat), dLo=t(b.lon-a.lon); const h=Math.sin(dLa/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dLo/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
-function costTo(code){ const km = haversine(PLACES[S.location], PLACES[code]); return {km:Math.round(km/10)*10, mi:round5(40*Math.sqrt(km/100))}; }
-
-function returnFare(code){ return round5(costTo(code).mi*0.5); }
-function flyBack(code){
-  const c = returnFare(code); if(c>S.miles){ toast(`You need ${c-S.miles} more miles.`); return; }
-  S.miles -= c; S.location = code; VB = null; save();
-  const o=$("#ov"); if(o) o.remove(); tab="journey"; journeyView="map"; render(); toast(`Back in ${PLACES[code].name} · −${c} mi`);
-}
 /* ---------------- Focus timer ---------------- */
 let tick = null;
 function refInfo(ref){
   const it = itemById(ref.itemId); if(!it) return null;
-  if(ref.kind==="habit"){ const r=(it.habit.routine||{})[new Date().getDay()]; return {it, title:it.title, sub:r||"Habit", minutes:it.habit.minimum||10, miles:habitMiles(it), remaining:null, tip:r||""}; }
-  if(ref.kind==="step"){ const s=(it.steps||[]).find(x=>x.id===ref.stepId); if(!s) return null; return {it, step:s, title:s.title, sub:it.title, minutes:s.minutes||30, miles:milesFor(s.minutes||30,it.feeling), remaining:s.remaining, tip:""}; }
-  return {it, title:it.title, sub:"Task", minutes:it.minutes||20, miles:milesFor(it.minutes||20,it.feeling), remaining:it.remaining, tip:""};
+  if(ref.kind==="habit"){ const r=(it.habit.routine||{})[new Date().getDay()]; return {it, title:it.title, sub:r||"Habit", minutes:it.habit.minimum||10, remaining:null, tip:r||""}; }
+  if(ref.kind==="step"){ const s=(it.steps||[]).find(x=>x.id===ref.stepId); if(!s) return null; return {it, step:s, title:s.title, sub:it.title, minutes:s.minutes||30, remaining:s.remaining, tip:""}; }
+  return {it, title:it.title, sub:"Task", minutes:it.minutes||20, remaining:it.remaining, tip:""};
 }
 function persistFocus(){ S.focus = focus ? JSON.parse(JSON.stringify(focus)) : null; save(); }
 function startFocus(ref){
@@ -32,14 +22,14 @@ function drawFocus(){
   const info = refInfo(focus.ref);
   let el = $("#ov"); if(!el){ el=document.createElement("div"); el.id="ov"; $("#app").appendChild(el); }
   el.className="overlay focus"; el.style.background=""; el.setAttribute("role","dialog"); el.setAttribute("aria-modal","true"); el.setAttribute("aria-label","Focus timer");
-  el.innerHTML = `<div class="row" style="justify-content:space-between"><button class="btn text" data-fhide style="color:#C5CEE6;padding:0">${ico("back",20)} Leave it running</button><span class="chip" style="background:rgba(255,138,126,.15);color:#FF8A7E">Earning +${info.miles} mi</span></div>
+  el.innerHTML = `<div class="row" style="justify-content:space-between"><button class="btn text" data-fhide style="color:#C5CEE6;padding:0">${ico("back",20)} Leave it running</button></div>
   <div style="text-align:center"><span class="small" style="color:#A9B6D4">${esc(info.sub)}</span><h1 style="font-size:24px;margin-top:2px">${esc(info.title)}</h1></div>
   <div class="ring"><svg width="260" height="260" viewBox="0 0 260 260" aria-hidden="true"><circle cx="130" cy="130" r="110" fill="none" stroke="#2A3A5E" stroke-width="12"/><circle id="arc" cx="130" cy="130" r="110" fill="none" stroke="#FF8A7E" stroke-width="12" stroke-linecap="round" transform="rotate(-90 130 130)" stroke-dasharray="0 999"/></svg>
   <div class="c"><span class="time" id="ftime">0:00</span><span class="small" id="fsub" style="color:#A9B6D4"></span></div></div>
   ${info.tip?`<div class="tip">${ico("bulb",20,"#F2D4A4")} ${esc(info.tip)}</div>`:""}
   <div id="fcheck"></div>
   <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
-    <button class="btn coral" data-fdone>Done, collect miles</button>
+    <button class="btn coral" data-fdone>Done</button>
     <div class="row"><button class="btn ghost" data-ftoggle style="flex:1" id="ftoggle">${focus.running?"Pause":"Resume"}</button>${focus.ref.kind==="habit"?"":`<button class="btn ghost" data-fstop style="flex:1">Stop for today</button>`}</div>
   </div>`;
   updateFocus();
@@ -55,11 +45,8 @@ function updateFocus(){
   const fc=$("#fcheck"); if(r<0 && fc && !fc.dataset.shown){ fc.dataset.shown="1"; fc.innerHTML=`<div class="tip" style="background:#24345E">Planned time is up. Keep going, wrap up, or tap Done. Extra time is fine.</div>`; }
 }
 function logHabit(it){
-  const t = todayStr(); if(it.habit.log[t]) return 0;
-  const before = habitStats(it).thisWeek; it.habit.log[t] = true;
-  let mi = habitMiles(it); const st = habitStats(it);
-  if(before < st.target && st.thisWeek >= st.target){ mi += 20; toast(`Weekly target hit · +20 mi bonus`); }
-  award(mi,"habit"); return mi;
+  const t = todayStr(); if(it.habit.log[t]) return false;
+  it.habit.log[t] = true; logDone("habit"); return true;
 }
 function completeStep(it, step, workedMin){
   step.done = true; delete step.remaining; it.minutesLogged = (it.minutesLogged||0) + (workedMin||0);
@@ -73,21 +60,20 @@ function endFocus(kind){
   const est = info.minutes; clearInterval(tick);
   const target = focus.ref.kind==="step" ? info.step : it;
   if(kind==="done"){
-    let mi;
-    if(focus.ref.kind==="habit"){ mi = logHabit(it); }
-    else { mi = info.miles; award(mi,"step"); if(focus.ref.kind==="step") completeStep(it, info.step, workedMin); else { it.status="done"; it.doneAt=new Date().toISOString(); delete it.remaining; } }
+    if(focus.ref.kind==="habit"){ logHabit(it); }
+    else { logDone("step"); if(focus.ref.kind==="step") completeStep(it, info.step, workedMin); else { it.status="done"; it.doneAt=new Date().toISOString(); delete it.remaining; } }
     addMin(Math.max(1, sessionMin)); save();
     const next = actionables().find(a=>a.kind!=="setup");
     $("#ov").innerHTML = `<div style="margin:auto 0;display:flex;flex-direction:column;gap:14px;text-align:center;align-items:center">
-      <span style="font-size:44px;font-weight:700;color:#FF8A7E">+${mi} mi</span><h1>${esc(info.title)}, done</h1>
-      <p style="color:#C5CEE6;margin:0">${workedMin} min${workedMin<est?`, ${est-workedMin} under the estimate. Full miles anyway.`:"."} You have ${S.miles} miles to spend.</p></div>
+      <h1>${esc(info.title)}, done</h1>
+      <p style="color:#C5CEE6;margin:0">${workedMin} min${workedMin<est?`, ${est-workedMin} under the estimate.`:"."}</p></div>
       ${next?`<div class="tip" style="text-align:left"><span class="small" style="color:#FF8A7E;font-weight:700">Keep going while you're rolling?</span><br><b>${esc(next.title)}</b> · about ${next.minutes} min</div>`:""}
       <div style="display:flex;flex-direction:column;gap:8px">${next?`<button class="btn coral" data-go-task="${next.itemId}" data-step="${next.stepId||""}">Keep going</button>`:""}<button class="btn ghost" data-fclose>Done for now</button></div>`;
     focus = null; persistFocus();
   } else if(kind==="stop"){
-    const mi = round5(info.miles*Math.min(1,workedMin/est)*0.8); award(mi,"partial"); addMin(sessionMin);
+    addMin(sessionMin);
     if(focus.ref.kind==="step") it.minutesLogged = (it.minutesLogged||0)+sessionMin;
-    delete target.remaining; focus=null; persistFocus(); const o=$("#ov"); if(o) o.remove(); render(); toast(`Saved. +${mi} mi for ${workedMin} min of work.`);
+    delete target.remaining; focus=null; persistFocus(); const o=$("#ov"); if(o) o.remove(); render(); toast(`Saved. ${workedMin} min of work.`);
   } else if(kind==="pause"){
     if(focus.ref.kind!=="habit") target.remaining = Math.max(60, r);
     addMin(sessionMin); if(focus.ref.kind==="step") it.minutesLogged=(it.minutesLogged||0)+sessionMin;
@@ -110,10 +96,9 @@ document.addEventListener("click", e => {
   if("fopen" in d){ openFocus(); return; }
   if("fdonecard" in d){ endFocus("done"); return; }
   if(d.turnto){ const sc=$("#scrim"); const id=ov&&ov.id; if(sc) sc.remove(); const it=itemById(id); if(!it) return; it.draft=freshDraft(d.turnto); it.draft.fromIdea=true; it.draft.title=it.title; save(); openOv("plan", id); return; }
-  if(d.flyback){ flyBack(d.flyback); return; }
   if(d.pin){ const it=itemById(d.pin); it.pinned=!it.pinned; save(); toast(it.pinned?"Added to Now":"Removed from Now"); if(ov) renderOv(); else render(); return; }
-  if(d.dumpdel){ const it=itemById(d.dumpdel); if(it && (it.type==="ticket" || confirm(`"${it.title}" is already planned. Delete it everywhere?`))){ S.items=S.items.filter(x=>x.id!==d.dumpdel); save(); render(); toast("Deleted"); } return; }
-  if(d.taskcheck){ const it=itemById(d.taskcheck); const mi=milesFor(it.minutes||20,it.feeling); award(mi,"step"); it.status="done"; it.pinned=false; it.doneAt=new Date().toISOString(); save(); render(); toast(`+${mi} mi · ${it.title}`); return; }
+  if(d.dumpdel){ const it=itemById(d.dumpdel); if(it && (it.type==="unplanned" || confirm(`"${it.title}" is already planned. Delete it everywhere?`))){ S.items=S.items.filter(x=>x.id!==d.dumpdel); save(); render(); toast("Deleted"); } return; }
+  if(d.taskcheck){ const it=itemById(d.taskcheck); logDone("step"); it.status="done"; it.pinned=false; it.doneAt=new Date().toISOString(); save(); render(); toast(`Done · ${it.title}`); return; }
   if(d.hor){ horView=d.hor; tab="hor"; render(); return; }
   if(d.energy){ S.energy=d.energy; energyMenu=false; save(); render(); return; }
   if(b.id==="dumpBtn"){ doDump(); return; }
@@ -121,7 +106,7 @@ document.addEventListener("click", e => {
   if(d.open){ openOv("item", d.open); return; }
   if(d.goTask!==undefined){ startFocus({kind:d.step?"step":"task", itemId:d.goTask, stepId:d.step||null}); return; }
   if(d.hstart){ startFocus({kind:"habit", itemId:d.hstart}); return; }
-  if(d.hdone){ const it=itemById(d.hdone); const mi=logHabit(it); save(); toast(mi?`+${mi} mi · ${it.title} done today`:"Already done today"); if(ov) renderOv(); else render(); return; }
+  if(d.hdone){ const it=itemById(d.hdone); const ok=logHabit(it); save(); toast(ok?`${it.title} · done today`:"Already done today"); if(ov) renderOv(); else render(); return; }
   if(d.hskip){ const it=itemById(d.hskip); it.habit.skip=it.habit.skip||{}; it.habit.skip[todayStr()]=true; save(); toast("Skipped for today. No penalty."); render(); return; }
   // plan-it controls
   if(ov && ov.kind==="plan"){
@@ -145,16 +130,16 @@ document.addEventListener("click", e => {
     if(d.turninto){ const sh=document.createElement("div"); sh.className="scrim"; sh.id="scrim"; sh.innerHTML=`<div class="sheet" role="dialog" aria-modal="true" aria-label="Turn it into"><div class="grab"></div><b style="font-size:20px">Turn it into…</b>${["goal","assignment","task","habit"].map(k=>{const t=TYPE_INFO[k]; return `<button class="typecard row" data-turnto="${k}" style="--c:${t.col};flex-direction:row;align-items:center;gap:12px;padding:12px 14px"><span class="ti">${ico(t.icon,20,t.col)}</span><span style="display:flex;flex-direction:column;align-items:flex-start"><b>${t.label}</b><span>${t.desc}</span></span></button>`;}).join("")}<div class="fact small"><b>Comes with it:</b> your take and notes${(it.spark||{}).source?", the source":""}${it.chat&&it.chat.length?", and your conversation":""}. The plan's first steps can be built from them.</div></div>`; $("#app").appendChild(sh); return; }
     if(d.hday!==undefined){ const k=+d.hday; const a=it.habit.days; it.habit.days = a.includes(k)?a.filter(x=>x!==k):a.concat(k).sort(); if(!it.habit.days.length) it.habit.days=[k]; save(); renderOv(); return; }
     if(d.hmin){ it.habit.minimum=+d.hmin; save(); renderOv(); return; }
-    if(d.stepdone){ const s=it.steps.find(x=>x.id===d.stepdone); const mi=milesFor(s.minutes||30,it.feeling); award(mi,"step"); completeStep(it,s,0); save(); toast(`+${mi} mi · step logged`); if(it.status==="done"){ closeOv(); toast(`${it.title} complete!`); } else renderOv(); return; }
+    if(d.stepdone){ const s=it.steps.find(x=>x.id===d.stepdone); logDone("step"); completeStep(it,s,0); save(); toast("Step logged"); if(it.status==="done"){ closeOv(); toast(`${it.title} complete!`); } else renderOv(); return; }
     if(d.complete){ it.status="done"; it.doneAt=new Date().toISOString(); save(); closeOv(); toast(`${it.title} complete!`); return; }
-    if(d.taskdone){ const mi=milesFor(it.minutes,it.feeling); award(mi,"step"); it.status="done"; it.pinned=false; it.doneAt=new Date().toISOString(); save(); closeOv(); toast(`+${mi} mi · logged`); return; }
-    if(d.replan){ it.draft={type:null,minutes:null,due:"",feeling:null,days:[0,1,2,3,4,5,6],time:"",minimum:10,date:"",etime:"",title:""}; it.type="ticket"; save(); openOv("plan", it.id); return; }
+    if(d.taskdone){ logDone("step"); it.status="done"; it.pinned=false; it.doneAt=new Date().toISOString(); save(); closeOv(); toast("Logged"); return; }
+    if(d.replan){ it.draft={type:null,minutes:null,due:"",feeling:null,days:[0,1,2,3,4,5,6],time:"",minimum:10,date:"",etime:"",title:""}; it.type="unplanned"; save(); openOv("plan", it.id); return; }
     if(d.delitem){ if(confirm(it.status==="done"?`Delete "${it.title}" forever?`:`Delete "${it.title}"?`)){ S.items=S.items.filter(x=>x.id!==it.id); save(); closeOv(); toast("Deleted"); } return; }
     if(d.reopen){ it.status="open"; delete it.doneAt; if(it.steps) it.steps.forEach(s=>{}); save(); renderOv(); toast("Reopened"); return; }
   }
   if(ov){
     const it = itemById(ov.id);
-    if(d.starter!==undefined){ const type = it.type==="ticket"?it.draft.type:it.type; sendChat(it.ai.starters[type][+d.starter]); return; }
+    if(d.starter!==undefined){ const type = it.type==="unplanned"?it.draft.type:it.type; sendChat(it.ai.starters[type][+d.starter]); return; }
     if(d.send!==undefined){ const ci=$("#chatIn"); const v=ci.value; ci.value=""; sendChat(v); return; }
     if(d.mkplan!==undefined){ makePlan(); return; }
     if(d.mkroutine!==undefined){ makeRoutine(); return; }
@@ -170,12 +155,6 @@ document.addEventListener("click", e => {
   if("fpause" in d){ endFocus("pause"); return; }
   if("fclose" in d){ const o=$("#ov"); if(o) o.remove(); render(); return; }
   if("ftoggle" in d){ if(focus.running){ focus.remaining=remainingNow(); focus.running=false; } else { focus.base=focus.remaining; focus.startedAt=Date.now(); focus.running=true; } $("#ftoggle").textContent=focus.running?"Pause":"Resume"; persistFocus(); return; }
-  // journey
-  if(d.jv){ journeyView=d.jv; render(); return; }
-  if(d.zoom){ zoomTo(VB.w*(d.zoom==="in"?0.75:1.33)); return; }
-  if(d.place){ openPlace(d.place); return; }
-  if(d.fly){ fly(d.fly); return; }
-  if("close" in d){ closeOverlay(); return; }
 });
 document.addEventListener("change", e => {
   const t = e.target;
@@ -198,5 +177,4 @@ document.addEventListener("keydown", e => {
   if(e.key==="Escape"){ const sc=$("#scrim"); if(sc){ if(ov) sc.remove(); else closeOverlay(); } else if(ov) closeOv(); }
 });
 if(S.focus){ focus = S.focus; focus.hidden = true; if(refInfo(focus.ref)){ clearInterval(tick); tick=setInterval(updateFocus,500); } else { focus=null; S.focus=null; } }
-window.addEventListener("resize", ()=>{ if(typeof VB!=="undefined" && VB) applyVB(); });
 render();

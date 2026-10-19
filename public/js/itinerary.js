@@ -38,7 +38,7 @@ function trayFor(date){
 function fixedFor(date){
   const dow=dateObj(date).getDay(), out=[];
   for(const it of S.items){
-    if(it.status==="ticket") continue;
+    if(it.type==="unplanned") continue;
     if(it.type==="event" && it.status==="open" && it.event && it.event.time && (it.event.date===date || (it.event.repeat==="weekly" && dateObj(it.event.date).getDay()===dow && it.event.date<=date)))
       out.push({h:hm(it.event.time), dur:(it.event.dur||60), title:it.title, kind:"event", feeling:it.feeling, id:it.id});
     if(it.type==="habit" && it.status==="open" && it.habit.time && (it.habit.days||[]).includes(dow))

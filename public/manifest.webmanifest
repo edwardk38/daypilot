@@ -1,7 +1,7 @@
 {
-  "name": "Passport Planner",
-  "short_name": "Planner",
-  "description": "An ADHD-friendly planner that turns goals into small, startable steps, and rewards progress with travel.",
+  "name": "Daypilot",
+  "short_name": "Daypilot",
+  "description": "An ADHD-friendly planner that turns goals into small, startable steps.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#F3F5F8",
