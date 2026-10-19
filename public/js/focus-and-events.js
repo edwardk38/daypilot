@@ -52,28 +52,47 @@ function completeStep(it, step, workedMin){
   step.done = true; delete step.remaining; it.minutesLogged = (it.minutesLogged||0) + (workedMin||0);
   if((it.steps||[]).every(s=>s.done)){ it.status = "done"; it.doneAt = new Date().toISOString(); }
 }
+/* Completion moment: shown whenever a session ends, finished or stopped early. Calm, one screen. */
+function routeBar(steps, cur){
+  return `<div class="route" aria-hidden="true">${steps.map((s,k)=>`<i class="${s.done?"done":k===cur?"cur":""}"></i>`).join("")}</div>`;
+}
+function showCompletion(info, finished, workedMin, next){
+  const it = info.it, steps = info.step ? (it.steps||[]) : [];
+  const k = info.step ? steps.indexOf(info.step) : -1;
+  const route = k>=0 ? `<div class="card" style="background:#1E2D52;color:#E3E8F4;gap:8px;text-align:left;width:100%"><span class="small" style="color:#A9B6D4">Step ${k+1} of ${steps.length} · ${esc(it.title)}</span>${routeBar(steps, finished ? steps.findIndex(s=>!s.done) : k)}</div>` : "";
+  const worked = workedMin<1 ? "Under a minute" : `${workedMin} min`;
+  $("#ov").innerHTML = `<div style="margin:auto 0;display:flex;flex-direction:column;gap:14px;text-align:center;align-items:center">
+      ${finished?`<span style="width:56px;height:56px;border-radius:50%;background:#2E7D5B;display:flex;align-items:center;justify-content:center">${ico("check",28,"#fff")}</span>`:""}
+      <h1>${finished?`${esc(info.title)}, done`:"You started. That counts."}</h1>
+      ${finished?"":`<span style="color:#C5CEE6">${esc(info.title)} stays on Now for next time.</span>`}
+      ${route}
+      <div class="dstat" style="flex:none;padding:10px 18px"><b>${worked}</b><span>time worked</span></div></div>
+      ${next?`<div class="tip" style="text-align:left"><span class="small" style="color:#FF8A7E;font-weight:700">Next</span><br><b>${esc(next.title)}</b> · about ${next.minutes} min</div>`:""}
+      <div style="display:flex;flex-direction:column;gap:8px">${next?`<button class="btn coral" data-go-task="${next.itemId}" data-step="${next.stepId||""}">Keep going</button>`:""}<button class="btn ghost" data-fclose>Done for now</button></div>`;
+}
+// The next thing to offer: the following step on the same route, else the top of Now (never the thing just stopped).
+function nextAfter(ref){
+  const list = actionables().filter(a=>a.kind!=="setup" && !(a.itemId===ref.itemId && (a.stepId||null)===(ref.stepId||null)));
+  return list.find(a=>a.itemId===ref.itemId) || list[0] || null;
+}
 function endFocus(kind){
-  if(focus.hidden && kind==="done"){ focus.hidden=false; drawFocus(); }
+  if(focus.hidden && kind!=="pause"){ focus.hidden=false; drawFocus(); }
   const info = refInfo(focus.ref); if(!info){ focus=null; persistFocus(); clearInterval(tick); render(); return; } const it = info.it; const r = remainingNow();
   const sessionMin = Math.max(0, Math.round((focus.start0 - r)/60));
   const workedMin = Math.max(1, Math.round((focus.total - r)/60));
-  const est = info.minutes; clearInterval(tick);
+  clearInterval(tick);
   const target = focus.ref.kind==="step" ? info.step : it;
   if(kind==="done"){
     if(focus.ref.kind==="habit"){ logHabit(it); }
     else { logDone("step"); if(focus.ref.kind==="step") completeStep(it, info.step, workedMin); else { it.status="done"; it.doneAt=new Date().toISOString(); delete it.remaining; } }
     addMin(Math.max(1, sessionMin)); save();
-    const next = actionables().find(a=>a.kind!=="setup");
-    $("#ov").innerHTML = `<div style="margin:auto 0;display:flex;flex-direction:column;gap:14px;text-align:center;align-items:center">
-      <h1>${esc(info.title)}, done</h1>
-      <p style="color:#C5CEE6;margin:0">${workedMin} min${workedMin<est?`, ${est-workedMin} under the estimate.`:"."}</p></div>
-      ${next?`<div class="tip" style="text-align:left"><span class="small" style="color:#FF8A7E;font-weight:700">Keep going while you're rolling?</span><br><b>${esc(next.title)}</b> · about ${next.minutes} min</div>`:""}
-      <div style="display:flex;flex-direction:column;gap:8px">${next?`<button class="btn coral" data-go-task="${next.itemId}" data-step="${next.stepId||""}">Keep going</button>`:""}<button class="btn ghost" data-fclose>Done for now</button></div>`;
-    focus = null; persistFocus();
+    const ref = focus.ref; focus = null; persistFocus();
+    showCompletion(info, true, workedMin, nextAfter(ref));
   } else if(kind==="stop"){
     addMin(sessionMin);
     if(focus.ref.kind==="step") it.minutesLogged = (it.minutesLogged||0)+sessionMin;
-    delete target.remaining; focus=null; persistFocus(); const o=$("#ov"); if(o) o.remove(); render(); toast(`Saved. ${workedMin} min of work.`);
+    delete target.remaining; const ref = focus.ref, stopMin = Math.round((focus.total - r)/60); focus=null; save(); persistFocus();
+    showCompletion(info, false, stopMin, nextAfter(ref));
   } else if(kind==="pause"){
     if(focus.ref.kind!=="habit") target.remaining = Math.max(60, r);
     addMin(sessionMin); if(focus.ref.kind==="step") it.minutesLogged=(it.minutesLogged||0)+sessionMin;
