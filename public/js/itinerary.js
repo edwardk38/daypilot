@@ -30,8 +30,8 @@ function trayFor(date){
       const show = s.planDate===date || (!s.planDate && date===t && (it.pinned || (it.due && daysUntil(it.due)<=3)));
       if(show && s.skipOn!==date) out.push({ref:{kind:"step",itemId:it.id,stepId:s.id}, title:s.title, minutes:s.minutes||30, col:"var(--coral)", sub:it.title, noAuto:!!it.noAuto});
     }
-    if(it.type==="habit" && !it.habit.time && (it.habit.days||[]).includes(dow) && !(it.habit.log||{})[date] && !(it.habit.skip||{})[date])
-      out.push({ref:{kind:"habit",itemId:it.id}, title:it.title, minutes:it.habit.minimum||10, col:"var(--blue)", sub:"Habit", noAuto:!!it.noAuto});
+    if(it.type==="habit" && habitDue(it, date) && (freqOf(it.habit)==="slots" ? (it.habit.slots||[]).some(s=>!s.time) : !it.habit.time))
+      out.push({ref:{kind:"habit",itemId:it.id}, title:it.title, minutes:it.habit.minimum||10, col:"var(--blue)", sub:"Habit", noAuto:!!it.noAuto, dots:freqOf(it.habit)==="slots"?slotDots(it.habit,date):""});
   }
   return out.filter(x=>!placed.has(refKey(x.ref)));
 }
@@ -41,7 +41,9 @@ function fixedFor(date){
     if(it.type==="unplanned") continue;
     if(it.type==="event" && it.status==="open" && it.event && it.event.time && (it.event.date===date || (it.event.repeat==="weekly" && dateObj(it.event.date).getDay()===dow && it.event.date<=date)))
       out.push({h:hm(it.event.time), dur:(it.event.dur||60), title:it.title, kind:"event", feeling:it.feeling, id:it.id});
-    if(it.type==="habit" && it.status==="open" && it.habit.time && (it.habit.days||[]).includes(dow))
+    if(it.type==="habit" && it.status==="open" && freqOf(it.habit)==="slots" && onDay(it.habit,date)){ const dn=slotsDone(it.habit,date);
+      (it.habit.slots||[]).filter(s=>s.time).forEach(s=>out.push({h:hm(s.time), dur:it.habit.minimum||10, title:it.title+" · "+(s.label||"Slot"), kind:"habit", done:dn.includes(s.id), id:it.id, dots:slotDots(it.habit,date)})); }
+    else if(it.type==="habit" && it.status==="open" && it.habit.time && onDay(it.habit,date) && !(it.habit.excuse||{})[date])
       out.push({h:hm(it.habit.time), dur:it.habit.minimum||10, title:it.title, kind:"habit", done:!!(it.habit.log||{})[date], id:it.id});
     if(it.type==="task" && it.at && it.due===date)
       out.push({h:hm(it.at), dur:it.minutes||20, title:it.title, kind:"task", done:it.status==="done", id:it.id});
@@ -116,7 +118,7 @@ function viewItinerary(){
   else body += monthView(itinDate);
   return body;
 }
-function trayChip(x){ return `<button class="tchip" data-drag="tray" data-ref='${JSON.stringify(x.ref)}' style="--c:${x.col}">${ico("grip",14)}<b>${esc(x.title)}</b><span>${x.minutes}m</span>${x.noAuto?`<em title="Left out of auto-planning">⊘</em>`:""}</button>`; }
+function trayChip(x){ return `<button class="tchip" data-drag="tray" data-ref='${JSON.stringify(x.ref)}' style="--c:${x.col}">${ico("grip",14)}<b>${esc(x.title)}</b>${x.dots||""}<span>${x.minutes}m</span>${x.noAuto?`<em title="Left out of auto-planning">⊘</em>`:""}</button>`; }
 function dayView(date){
   const tray = trayFor(date), plans = plansFor(date), fixed = fixedFor(date);
   const proposed = plans.filter(p=>p.proposed);
@@ -125,7 +127,7 @@ function dayView(date){
   const H=(DAY1-DAY0)*HPX; const y=x=>(x-DAY0)*HPX;
   let g = "";
   for(let k=DAY0;k<=DAY1;k++) g += `<span class="hl" style="top:${y(k)-7}px">${k===24?"":timeLabel(String(k%24).padStart(2,"0")+":00").replace(":00","")}</span><div class="hline" style="top:${y(k)}px"></div>`;
-  for(const f of fixed){ const hh=Math.max(26,f.dur/60*HPX-4); g += `<div class="blk ${f.kind}${f.done?" done":""}" style="top:${y(f.h)+2}px;height:${hh}px" ${f.kind==="event"?"":`data-open="${f.id}"`}><b>${esc(f.title)}</b>${hh>34?`<span>${timeLabel(toHM(f.h))}${f.kind==="event"&&f.feeling==="excited"?" · excited":f.kind==="event"&&f.feeling==="scary"?" · dreading":""}${f.kind==="habit"?" · habit":""}</span>`:""}</div>`; }
+  for(const f of fixed){ const hh=Math.max(26,f.dur/60*HPX-4); g += `<div class="blk ${f.kind}${f.done?" done":""}" style="top:${y(f.h)+2}px;height:${hh}px" ${f.kind==="event"?"":`data-open="${f.id}"`}><b>${f.dots?f.dots+" ":""}${esc(f.title)}</b>${hh>34?`<span>${timeLabel(toHM(f.h))}${f.kind==="event"&&f.feeling==="excited"?" · excited":f.kind==="event"&&f.feeling==="scary"?" · dreading":""}${f.kind==="habit"?" · habit":""}</span>`:""}</div>`; }
   for(const p of plans){ const info=refTitle(p.ref); if(!info) continue; const st=hm(p.start), hh=Math.max(26,p.dur/60*HPX-4);
     g += `<div class="blk plan ${p.ref.kind}${p.proposed?" prop":""}${info.done?" done":""}" data-drag="block" data-ref='${JSON.stringify(p.ref)}' style="top:${y(st)+2}px;height:${hh}px;--c:${info.col}"><b>${esc(info.title)}</b>${hh>34?`<span>${timeLabel(p.start)} · ${p.dur} min${info.sub&&info.sub!=="Task"?" · "+esc(info.sub):""}</span>`:""}</div>`; }
   if(date===todayStr()){ const n=new Date(); const nh=n.getHours()+n.getMinutes()/60; if(nh>=DAY0) g += `<div class="nowline" style="top:${y(nh)}px"><i></i></div>`; }

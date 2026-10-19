@@ -113,12 +113,64 @@ function dueLabel(d){
 }
 function timeLabel(t){ if(!t) return ""; const [h,m]=t.split(":").map(Number); const d=new Date(); d.setHours(h,m,0,0); return d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); }
 function weekDates(){ const t=new Date(); const s=new Date(t); s.setDate(t.getDate()-t.getDay()); return [...Array(7)].map((_,k)=>{ const d=new Date(s); d.setDate(s.getDate()+k); return todayStr(d); }); }
+/* ---------------- Habits ----------------
+   habit.freq: "days" (specific days, the original kind), "count" (perWeek days, any days) or "slots"
+   (several times a day: named slots, each checked separately; the day counts once minSlots are done).
+   habit.log[date] = true when a day counts. habit.excuse[date] = a "Something came up" note: that day
+   is never a miss in any number. Habits have no streaks. */
+const freqOf = h => (h && h.freq) || "days";
+const slotNeed = h => Math.min((h.slots||[]).length, h.minSlots || (h.slots||[]).length) || 1;
+const slotsDone = (h, date) => ((h.slotLog||{})[date||todayStr()]||[]).filter(id=>(h.slots||[]).some(s=>s.id===id));
+function onDay(h, date){ return freqOf(h)==="count" || (h.days||[]).includes(new Date(date+"T12:00:00").getDay()); }
 function habitStats(it){
-  const h = it.habit||{days:[0,1,2,3,4,5,6],log:{}}; const log = h.log||{};
-  const wk = weekDates(); const target = (h.days||[]).length || 7;
+  const h = it.habit||{days:[0,1,2,3,4,5,6],log:{}}; const log = h.log||{}, exc = h.excuse||{};
+  const wk = weekDates();
+  const excusedWk = wk.filter(d=>exc[d] && !log[d] && onDay(h,d)).length;
+  const target = freqOf(h)==="count" ? Math.max(0, Math.min(h.perWeek||3, 7-excusedWk)) : Math.max(0, ((h.days||[]).length || 7) - excusedWk);
   const thisWeek = wk.filter(d=>log[d]).length;
-  let last30=0; for(let k=0;k<30;k++){ const d=new Date(); d.setDate(d.getDate()-k); if(log[todayStr(d)]) last30++; }
-  return {thisWeek, target, last30, total:Object.keys(log).length, wk, log};
+  let last30=0, exc30=0; for(let k=0;k<30;k++){ const d=new Date(); d.setDate(d.getDate()-k); const ds=todayStr(d); if(log[ds]) last30++; else if(exc[ds]) exc30++; }
+  return {thisWeek, target, last30, of30:30-exc30, total:Object.keys(log).length, wk, log, exc};
+}
+// Is it on today's list? Count habits show every day until the week's number is reached.
+function habitDue(it, date){
+  const h = it.habit, t = date||todayStr();
+  if(it.status!=="open" || !h || (h.log||{})[t] || (h.skip||{})[t] || (h.excuse||{})[t] || !onDay(h,t)) return false;
+  if(freqOf(h)==="count"){ const st = habitStats(it); return st.thisWeek < st.target; }
+  return true;
+}
+// Check off one slot (the next open one unless slotId is given); the day counts once enough are done.
+function checkSlot(it, slotId){
+  const h = it.habit, t = todayStr(); h.slotLog = h.slotLog||{};
+  const done = slotsDone(h, t); const id = slotId || ((h.slots||[]).find(s=>!done.includes(s.id))||{}).id;
+  if(!id || done.includes(id)) return false;
+  h.slotLog[t] = done.concat(id); markStart();
+  if(!(h.log||{})[t] && h.slotLog[t].length >= slotNeed(h)) logHabit(it);
+  return true;
+}
+function uncheckSlot(it, slotId){
+  const h = it.habit, t = todayStr(); h.slotLog = h.slotLog||{};
+  h.slotLog[t] = slotsDone(h, t).filter(x=>x!==slotId);
+  if((h.log||{})[t] && h.slotLog[t].length < slotNeed(h)) delete h.log[t];
+}
+// Mark a habit done from any button: slot habits check their next slot.
+function habitTap(it){ return freqOf(it.habit)==="slots" ? checkSlot(it) : logHabit(it); }
+function slotDots(h, date, big){
+  const done = slotsDone(h, date);
+  return `<span class="sdots${big?" big":""}" aria-label="${done.length} of ${(h.slots||[]).length} done">${(h.slots||[]).map(s=>`<i class="${done.includes(s.id)?"on":""}"></i>`).join("")}</span>`;
+}
+function freqText(h){
+  const f = freqOf(h);
+  if(f==="count") return `${h.perWeek||3} day${(h.perWeek||3)===1?"":"s"} a week`;
+  if(f==="slots") return (h.slots||[]).map(s=>s.label||"Slot").join(" · ") + ((h.days||[]).length<7 ? " · " + (h.days||[]).map(d=>DOWL[d].slice(0,3)).join(", ") : "");
+  return (h.days||[]).length===7 ? "Every day" : (h.days||[]).map(d=>DOWL[d].slice(0,3)).join(", ");
+}
+// 3+ excuse notes on the same weekday in the last 6 weeks: suggest moving the habit off that day.
+function excuseWeekday(it){
+  const h = it.habit; if(freqOf(h)==="count" || (h.days||[]).length<2) return null;
+  const n = [0,0,0,0,0,0,0];
+  for(let k=1;k<=42;k++){ const d=new Date(); d.setDate(d.getDate()-k); if((h.excuse||{})[todayStr(d)]) n[d.getDay()]++; }
+  const dow = n.findIndex((c,i)=>c>=3 && (h.days||[]).includes(i) && !(h.keepDay||[]).includes(i));
+  return dow<0 ? null : {dow, count:n[dow]};
 }
 const ICON = {
   now:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/>',
@@ -130,7 +182,7 @@ const ICON = {
   bulb:'<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/>',
   send:'<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/>',
   clip:'<path d="M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/>',
-  check:'<path d="M5 12l5 5 9-10"/>', gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>', grip:'<circle cx="9" cy="6" r="1.3"/><circle cx="15" cy="6" r="1.3"/><circle cx="9" cy="12" r="1.3"/><circle cx="15" cy="12" r="1.3"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>', chev:'<path d="M6 9l6 6 6-6"/>', doc:'<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4M9 13h6M9 17h6"/>', bubble:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>', link:'<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>', repeat:'<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/>'
+  check:'<path d="M5 12l5 5 9-10"/>', bell:'<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/>', gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>', grip:'<circle cx="9" cy="6" r="1.3"/><circle cx="15" cy="6" r="1.3"/><circle cx="9" cy="12" r="1.3"/><circle cx="15" cy="12" r="1.3"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>', chev:'<path d="M6 9l6 6 6-6"/>', doc:'<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4M9 13h6M9 17h6"/>', bubble:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>', link:'<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>', repeat:'<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/>'
 };
 const ico = (n,s=22,c="currentColor") => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
 
@@ -162,7 +214,7 @@ function actionables(){
 }
 function habitsToday(){
   const d = new Date().getDay(), t = todayStr();
-  return S.items.filter(i=>i.type==="habit" && i.status==="open" && (i.habit.days||[]).includes(d) && !(i.habit.log||{})[t] && !(i.habit.skip||{})[t])
+  return S.items.filter(i=>i.type==="habit" && habitDue(i, t))
     .sort((a,b)=>(a.habit.time||"99").localeCompare(b.habit.time||"99"));
 }
 
@@ -187,7 +239,8 @@ function timedToday(){
   const t=todayStr(), dow=new Date().getDay(); const out=[];
   const hr = s => { if(!s) return null; const [h,m]=s.split(":").map(Number); return h+m/60; };
   for(const i of S.items){
-    if(i.type==="habit" && i.status==="open" && (i.habit.days||[]).includes(dow) && i.habit.time){ out.push({h:hr(i.habit.time), label:i.title, kind:"habit", done:!!(i.habit.log||{})[t], id:i.id}); }
+    if(i.type==="habit" && i.status==="open" && freqOf(i.habit)==="slots" && onDay(i.habit,t)){ const dn=slotsDone(i.habit,t); (i.habit.slots||[]).filter(s=>s.time).forEach(s=>out.push({h:hr(s.time), label:i.title+" · "+(s.label||"Slot"), kind:"habit", done:dn.includes(s.id), id:i.id})); }
+    else if(i.type==="habit" && i.status==="open" && onDay(i.habit,t) && i.habit.time && !(i.habit.excuse||{})[t]){ out.push({h:hr(i.habit.time), label:i.title, kind:"habit", done:!!(i.habit.log||{})[t], id:i.id}); }
     if(i.type==="event" && i.status==="open" && i.event && i.event.date===t && i.event.time){ out.push({h:hr(i.event.time), label:i.title, kind:"event", done:false, id:i.id}); }
     if(i.type==="task" && i.at && i.due===t){ out.push({h:hr(i.at), label:i.title, kind:"task", done:i.status==="done", id:i.id}); }
   }
@@ -253,7 +306,10 @@ function viewNow(){
   const deck = [];
   if(!focus) order.slice(1).forEach(a=>deck.push({lab:a.pinned?"Your pick":a.due&&daysUntil(a.due)<=1?dueLabel(a.due):a.parent?esc(a.parent):"Task", col:a.pinned?"var(--coral)":"var(--amber)", title:a.title, meta:`${a.minutes} min`, attr:a.kind==="setup"?`data-open="${a.itemId}"`:actAttr(a)}));
   else order.filter(a=>!isActive({kind:a.kind, itemId:a.itemId, stepId:a.stepId})).forEach(a=>deck.push({lab:a.pinned?"Your pick":"Up next", col:"var(--coral)", title:a.title, meta:`${a.minutes} min`, attr:`data-open="${a.itemId}"`}));
-  habits.forEach(h=>{ const r=(h.habit.routine||{})[new Date().getDay()]; deck.push({lab:(h.habit.time?timeLabel(h.habit.time)+" · ":"")+"Habit", col:"var(--blue)", title:h.title+(r?" · "+r:""), meta:`${h.habit.minimum||10} min`, attr:`data-hstart="${h.id}"`, done:h.id}); });
+  habits.forEach(h=>{ const r=(h.habit.routine||{})[new Date().getDay()];
+    if(freqOf(h.habit)==="slots"){ const dn=slotsDone(h.habit,t), nx=(h.habit.slots||[]).find(s=>!dn.includes(s.id))||{};
+      deck.push({lab:(nx.time?timeLabel(nx.time)+" · ":"")+"Habit", col:"var(--blue)", title:h.title, meta:`${slotDots(h.habit,t)} ${esc(nx.label||"")}`, attr:`data-hstart="${h.id}"`, done:h.id}); return; }
+    deck.push({lab:(h.habit.time?timeLabel(h.habit.time)+" · ":"")+"Habit", col:"var(--blue)", title:h.title+(r?" · "+r:""), meta:`${h.habit.minimum||10} min`, attr:`data-hstart="${h.id}"`, done:h.id}); });
   if(deck.length) b += `<div class="row" style="justify-content:space-between"><b>Also on deck</b><span class="tiny muted">${deck.length>2?"swipe":""}</span></div><div class="deck">${deck.map(c=>`<div class="dcard"><button ${c.attr} class="dbody"><span style="color:${c.col}">${c.lab}</span><b>${esc(c.title)}</b><em>${c.meta}</em></button>${c.done?`<button class="dcheck" data-hdone="${c.done}" aria-label="Mark ${esc(c.title)} done">${ico("check",14)}</button>`:""}</div>`).join("")}</div>`;
   // done for today
   if(!focus && !order.length && !habits.length){
@@ -375,13 +431,33 @@ function viewHabits(){
   const hs = S.items.filter(i=>i.type==="habit" && i.status==="open");
   if(!hs.length) return `<div class="empty"><h2>No habits yet</h2><p class="muted small" style="margin:0">Dump something like "meditate every morning," then plan it as a habit.</p><button class="btn coral" data-tab="dump">Go to Dump</button></div>`;
   const t = todayStr();
-  return hs.map(h=>{ const st = habitStats(h); const doneToday = st.log[t];
-    return `<div class="card"><button data-open="${h.id}" style="border:none;background:none;text-align:left;padding:0;display:flex;flex-direction:column;gap:2px"><span style="font-size:17px;font-weight:700">${esc(h.title)}</span><span class="tiny muted">${(h.habit.days||[]).length===7?"Every day":(h.habit.days||[]).map(d=>DOWL[d].slice(0,3)).join(", ")}${h.habit.time?" · "+timeLabel(h.habit.time):""} · ${h.habit.minimum||10} min</span></button>
+  return hs.map(h=>{ const st = habitStats(h), hb = h.habit, doneToday = st.log[t], slots = freqOf(hb)==="slots";
+    return `<div class="card"><button data-open="${h.id}" style="border:none;background:none;text-align:left;padding:0;display:flex;flex-direction:column;gap:2px"><span style="font-size:17px;font-weight:700">${esc(h.title)}</span><span class="tiny muted">${esc(freqText(hb))}${!slots&&hb.time?" · "+timeLabel(hb.time):""} · ${hb.minimum||10} min</span></button>
       <div class="row" style="align-items:baseline;gap:6px"><b style="font-size:26px">${st.thisWeek} of ${st.target}</b><span class="small muted">this week</span></div>
-      <div style="display:flex">${st.wk.map((d,k)=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px"><div style="width:28px;height:28px;border-radius:50%;${st.log[d]?"background:var(--blue)":d===t?"border:2px dashed var(--coral)":"background:var(--bg)"};display:flex;align-items:center;justify-content:center">${st.log[d]?ico("check",14,"#fff"):""}</div><span class="tiny muted">${DOW[k]}</span></div>`).join("")}</div>
-      <div class="row" style="gap:8px"><div class="fact" style="flex:1;padding:8px 10px"><b>${st.last30} of 30</b><br><span class="tiny muted">last 30 days</span></div><div class="fact" style="flex:1;padding:8px 10px"><b>${st.total}</b><br><span class="tiny muted">days in total</span></div></div>
-      ${doneToday?`<span class="small" style="color:var(--green);font-weight:600">${ico("check",16)} Done today</span>`:`<button class="btn ghost" data-hdone="${h.id}">Mark done today</button>`}
+      ${weekDots(hb, st, t)}
+      <div class="row" style="gap:8px"><div class="fact" style="flex:1;padding:8px 10px"><b>${st.last30} of ${st.of30}</b><br><span class="tiny muted">last 30 days</span></div><div class="fact" style="flex:1;padding:8px 10px"><b>${st.total}</b><br><span class="tiny muted">days in total</span></div></div>
+      ${slots && onDay(hb,t) && !doneToday ? `<div class="row" style="gap:8px">${slotDots(hb,t,true)}<span class="small muted">${slotsDone(hb,t).length} of ${(hb.slots||[]).length} today · counts at ${slotNeed(hb)}</span></div>` : ""}
+      ${doneToday?`<span class="small" style="color:var(--green);font-weight:600">${ico("check",16)} Done today</span>`:(st.exc[t]?"":`<button class="btn ghost" data-hdone="${h.id}">${slots?`Check off ${esc((((hb.slots||[]).find(s=>!slotsDone(hb,t).includes(s.id)))||{}).label||"next")}`:"Mark done today"}</button>`)}
+      ${excuseRow(h)}
     </div>`; }).join("");
+}
+function weekDots(h, st, t){
+  return `<div style="display:flex">${st.wk.map((d,k)=>{ const on=st.log[d], ex=!on&&st.exc[d];
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px"><div style="width:28px;height:28px;border-radius:50%;${on?"background:var(--blue)":ex?"background:var(--line)":d===t?"border:2px dashed var(--coral)":"background:var(--bg)"};display:flex;align-items:center;justify-content:center;color:var(--muted)"${ex?` title="Something came up"`:""}>${on?ico("check",14,"#fff"):ex?"–":""}</div><span class="tiny muted">${DOW[k]}</span></div>`; }).join("")}</div>`;
+}
+// "Something came up": on a habit's day, or the next morning for yesterday.
+function excuseRow(it){
+  const h = it.habit, t = todayStr(), y = shiftDay(t,-1), exc = h.excuse||{}, log = h.log||{};
+  if(exc[t]) return `<div class="row small muted" style="gap:8px"><span style="flex:1">Something came up today: ${esc(exc[t])}</span><button class="btn text" data-unexcuse="${it.id}" data-day="${t}" style="min-height:32px;padding:0;font-size:13px">Remove</button></div>`;
+  const out = [];
+  if(onDay(h,t) && !log[t]) out.push(`<button class="btn text" data-excuse="${it.id}" data-day="${t}" style="min-height:36px;padding:0;align-self:flex-start">Something came up</button>`);
+  if(new Date().getHours()<12 && onDay(h,y) && !log[y] && !exc[y] && (it.plannedAt||0) < new Date(t+"T00:00:00").getTime()) out.push(`<button class="btn text" data-excuse="${it.id}" data-day="${y}" style="min-height:36px;padding:0;align-self:flex-start">Something came up yesterday?</button>`);
+  return out.length ? `<div class="row" style="gap:16px;flex-wrap:wrap">${out.join("")}</div>` : "";
+}
+function excuseSheet(it, day){
+  const el=document.createElement("div"); el.className="scrim"; el.id="scrim";
+  el.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="Something came up"><div class="grab"></div><b style="font-size:20px">Something came up${day===todayStr()?"":" yesterday"}</b><span class="small muted" style="margin-top:-6px">${esc(it.title)} · this day won't count as a miss.</span><input id="excIn" class="dump" maxlength="80" placeholder="One line, for you" style="background:var(--bg)"><button class="btn coral" data-excsave="${it.id}" data-day="${day}">Save</button></div>`;
+  $("#app").appendChild(el); $("#excIn").focus();
 }
 /* ---------------- Overlays: Plan it and item pages ---------------- */
 function openOv(kind, id){ ov = {kind, id}; renderOv(); }
@@ -410,7 +486,7 @@ const TYPE_INFO = {
   event:{label:"Event", desc:"Happens at a set time", col:"var(--muted)", icon:"itin"},
   idea:{label:"Someday idea", desc:"Not ready to plan yet", col:"var(--gem)", icon:"bulb"}
 };
-function freshDraft(type){ return {step:type?1:0, type:type||null, minutes:null, when:"today", date:"", settime:"none", at:"", due:"", feelVal:2, days:[1,2,3,4,5], time:"", minimum:10, etime:"", repeat:"no", cls:"", why:"", cap:"", target:"none", source:"", thought:"", more:false}; }
+function freshDraft(type){ return {step:type?1:0, type:type||null, minutes:null, when:"today", date:"", settime:"none", at:"", due:"", feelVal:2, days:[1,2,3,4,5], freq:"days", perWeek:3, slots:[], minSlots:0, time:"", minimum:10, etime:"", repeat:"no", cls:"", why:"", cap:"", target:"none", source:"", thought:"", more:false}; }
 function totalSteps(d){ return !d.type?4 : d.type==="task" ? (d.more?4:2) : (d.type==="event"||d.type==="idea") ? 2 : 4; }
 function feelFrom(v){ v=+v; return v<=1?"scary":v>=3?"excited":null; }
 function feelLabel(v){ return ["Really scary","A bit scary","Meh","Looking forward to it","Excited"][+v]; }
@@ -493,10 +569,10 @@ function renderPlan(it){
   } else if(T==="habit"){
     if(d.step===1){
       inner += stepHead(it, "How should it fit your week?");
-      inner += `<div>${fieldLabel("Which days?")}<div style="display:flex;gap:5px;margin-top:8px">${DOW.map((l,k)=>`<button data-pday="${k}" aria-pressed="${d.days.includes(k)}" aria-label="${DOWL[k]}" class="daybtn${d.days.includes(k)?" on":""}" style="height:46px">${l}</button>`).join("")}</div><span class="tiny muted">${d.days.length} day${d.days.length===1?"":"s"} a week</span></div>`;
-      inner += `<div>${fieldLabel("What time?")}<div style="margin-top:8px">${chipRow("time",[["","Anytime"],["08:00","Morning"],["19:00","Evening"],["pick","Pick…"]],(["","08:00","19:00"].includes(d.time)?d.time:"pick"))}</div>${!["","08:00","19:00"].includes(d.time)?`<input type="time" class="dump" data-pfin="time" value="${esc(d.time==="pick"?"":d.time)}" style="margin-top:8px">`:""}</div>`;
+      inner += freqEditor(d);
+      if(freqOf(d)!=="slots") inner += `<div>${fieldLabel("What time?")}<div style="margin-top:8px">${chipRow("time",[["","Anytime"],["08:00","Morning"],["19:00","Evening"],["pick","Pick…"]],(["","08:00","19:00"].includes(d.time)?d.time:"pick"))}</div>${!["","08:00","19:00"].includes(d.time)?`<input type="time" class="dump" data-pfin="time" value="${esc(d.time==="pick"?"":d.time)}" style="margin-top:8px">`:""}</div>`;
       inner += `<div>${fieldLabel("Smallest version that counts")}<div style="margin-top:8px">${chipRow("minimum",[[2,"2 min"],[5,"5 min"],[10,"10 min"],[20,"20 min"],[30,"30 min"],[45,"45 min"],[60,"60 min"]],d.minimum)}</div></div>`;
-      footer = btnBack + btnP("Next", `data-pnav="next"`, !d.days.length);
+      footer = btnBack + btnP("Next", `data-pnav="next"`, !freqValid(d));
     } else if(d.step===2){ inner += helpStep(it, "habit"); if(it.routine && Object.keys(it.routine).length) inner += routineEditor(it); footer = btnBack + btnP((it.chat||[]).length?"Next":"Skip for now", `data-pnav="next"`); }
     else { inner += sendStep(it, d); footer = btnBack + btnP("Move to Habits", `data-finish="${it.id}"`); }
   } else if(T==="goal"){
@@ -517,6 +593,23 @@ function renderPlan(it){
     } else { inner += sendStep(it, d); footer = btnBack + btnP("Move to Goals", `data-finish="${it.id}"`); }
   }
   planShell(it, inner, footer);
+}
+/* Habit frequency editor. H is the Plan it draft or a saved habit; both use the same field names. */
+function freqValid(H){ const f=freqOf(H); return f==="count" ? true : f==="slots" ? (H.slots||[]).length>0 && (H.days||[]).length>0 : (H.days||[]).length>0; }
+const SLOT_PRESETS = {wake:["After waking","Before bed"], meals:["Breakfast","Lunch","Dinner"]};
+function freqEditor(H){
+  const f = freqOf(H), hfBtn = (field, v, l, on) => `<button class="chipbtn${on?" on":""}" aria-pressed="${on}" data-hf="${field}" data-v="${v}">${l}</button>`;
+  let h = `<div>${fieldLabel("How often?")}<div class="tags" style="margin-top:8px">${[["count","Days a week"],["days","Specific days"],["slots","Several times a day"]].map(([v,l])=>hfBtn("freq",v,l,f===v)).join("")}</div></div>`;
+  if(f==="count") h += `<div>${fieldLabel("How many days a week?")}<div style="display:flex;gap:5px;margin-top:8px">${[1,2,3,4,5,6,7].map(n=>`<button class="daybtn${(H.perWeek||3)===n?" on":""}" aria-pressed="${(H.perWeek||3)===n}" data-hf="perWeek" data-v="${n}">${n}</button>`).join("")}</div><span class="tiny muted">Any days. It shows on Now until the week's number is reached.</span></div>`;
+  if(f!=="count") h += `<div>${fieldLabel(f==="slots"?"On which days?":"Which days?")}<div style="display:flex;gap:5px;margin-top:8px">${DOW.map((l,k)=>`<button data-hfday="${k}" aria-pressed="${(H.days||[]).includes(k)}" aria-label="${DOWL[k]}" class="daybtn${(H.days||[]).includes(k)?" on":""}" style="height:46px">${l}</button>`).join("")}</div><span class="tiny muted">${(H.days||[]).length===7?"Every day":`${(H.days||[]).length} day${(H.days||[]).length===1?"":"s"} a week`}</span></div>`;
+  if(f==="slots"){
+    const sl = H.slots||[], need = Math.min(sl.length, H.minSlots||sl.length);
+    h += `<div style="display:flex;flex-direction:column;gap:8px">${fieldLabel("When in the day?")}<span class="tiny muted" style="margin-top:-4px">Name each one after a routine or a time. Each is checked off on its own.</span>
+      ${sl.map(s=>`<div class="row" style="gap:6px"><input class="dump" data-slotlabel="${s.id}" value="${esc(s.label)}" placeholder="e.g. After breakfast" maxlength="30" style="flex:1;min-width:0;min-height:44px;padding:8px 10px"><input type="time" class="dump" data-slottime="${s.id}" value="${esc(s.time||"")}" aria-label="Time for ${esc(s.label||"this one")}, optional" style="width:128px;flex-shrink:0;min-height:44px;padding:8px 6px;font-size:15px"><button class="iconbtn${s.time&&s.remind?" on":""}" data-slotrem="${s.id}" ${s.time?"":"disabled"} aria-pressed="${!!(s.time&&s.remind)}" aria-label="Reminder for ${esc(s.label||"this one")}" title="${s.time?"Reminder":"Set a time to get a reminder"}" style="width:40px;height:40px;${s.time&&s.remind?"color:var(--blue)":"opacity:"+(s.time?1:.4)}">${ico("bell",18)}</button><button class="iconbtn" data-slotdel="${s.id}" aria-label="Remove ${esc(s.label||"this one")}" style="width:36px;height:40px">${ico("close",16)}</button></div>`).join("")}
+      <div class="tags">${sl.length<6?`<button class="chipbtn" data-slotadd>+ Add one</button>`:""}${sl.length?"":Object.entries(SLOT_PRESETS).map(([k,v])=>`<button class="chipbtn" data-slotpreset="${k}">${v.join(" · ")}</button>`).join("")}</div></div>`;
+    if(sl.length>1) h += `<div>${fieldLabel("The day counts when")}<div class="tags" style="margin-top:8px">${sl.map((_,k)=>k+1).map(n=>hfBtn("minSlots", n, n===sl.length?`All ${n}`:`${n} of ${sl.length}`, need===n)).join("")}</div></div>`;
+  }
+  return h;
 }
 function stepHead(it, q){ const t = TYPE_INFO[it.draft.type]; return `<div class="row" style="gap:8px"><span class="chip" style="background:var(--surface);color:${t.col};box-shadow:0 0 0 1.5px var(--line) inset">${t.label}</span><span class="small muted" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.raw)}</span></div><b style="font-size:20px">${q}</b>`; }
 function helpStep(it, type){
@@ -542,11 +635,11 @@ function planChat(it, type, compact){
 }
 function sendStep(it, d){
   const t = TYPE_INFO[d.type]; let rows = [];
-  if(d.type==="habit") rows = [["Days", d.days.length===7?"Every day":d.days.map(x=>DOWL[x].slice(0,3)).join(", ")],["Time", d.time&&d.time!=="pick"?timeLabel(d.time):"Anytime"],["Minimum", d.minimum+" min"]].concat(it.routine&&Object.keys(it.routine).length?[["Routine", Object.values(it.routine).slice(0,3).join(" · ")]]:[]);
+  if(d.type==="habit") rows = [["How often", freqText(d)]].concat(freqOf(d)==="slots"?[["Counts when", `${slotNeed(d)} of ${(d.slots||[]).length} done`]]:[["Time", d.time&&d.time!=="pick"?timeLabel(d.time):"Anytime"]]).concat([["Minimum", d.minimum+" min"]]).concat(it.routine&&Object.keys(it.routine).length?[["Routine", Object.values(it.routine).slice(0,3).join(" · ")]]:[]);
   if(d.type==="assignment") rows = [["Class", d.cls||"Not set"],["Due", d.due?dueLabel(d.due):"No date"],["Feels", feelLabel(d.feelVal)],["Plan", (it.steps||[]).length?it.steps.length+" steps":"No plan yet; add it from its page"]];
   if(d.type==="goal") rows = [["Why", d.why||"Not set"],["Time", d.cap||"Not set"],["Target", d.target==="date"&&d.due?dueLabel(d.due).replace("Due ",""):"No deadline"],["Route", (it.steps||[]).length?it.steps.length+" checkpoints":"Add later"]];
   if(d.type==="task") rows = [["Takes", (d.minutes||20)+" min"],["When", {today:"Today",tomorrow:"Tomorrow",week:"This week",anytime:"Anytime",date:d.date||"Pick a date"}[d.when]],["Time", d.settime==="pick"&&d.at?timeLabel(d.at):"No time needed"]];
-  const where = {habit:"Shows on Now on its days"+(d.time&&d.time!=="pick"?" at "+timeLabel(d.time):""), assignment:"Lives in Horizon · Assignments; its next step shows on Now", goal:"Lives in Horizon · Goals", task:"Lives in Horizon · Tasks; add it to Now when you're ready"}[d.type];
+  const where = {habit:(freqOf(d)==="count"?"Shows on Now until the week's number is reached":"Shows on Now on its days")+(freqOf(d)!=="slots"&&d.time&&d.time!=="pick"?" at "+timeLabel(d.time):""), assignment:"Lives in Horizon · Assignments; its next step shows on Now", goal:"Lives in Horizon · Goals", task:"Lives in Horizon · Tasks; add it to Now when you're ready"}[d.type];
   return `<b style="font-size:20px">Here's your ${t.label.toLowerCase()}</b>` + nameRow(it, d) + `<div class="card" style="gap:2px">${rows.map(([k,v])=>`<div class="row" style="justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line)"><span class="small muted">${k}</span><b class="small" style="text-align:right;max-width:65%">${esc(v)}</b></div>`).join("")}<span class="tiny muted" style="margin-top:8px">${where}. You dumped: "${esc(it.raw)}"</span></div>`;
 }
 function planFields(d){ return ""; }
@@ -612,7 +705,7 @@ function contextFor(it){
   let ctx = `Item: "${it.type==="unplanned"?it.raw:it.title}" (original note: "${it.raw}"). Type: ${TYPES[type]||type}.`;
   const due = it.type==="unplanned"?d.due:it.due; if(due) ctx += ` Due: ${due}.`;
   const days = it.type==="unplanned"?d.days:(it.habit||{}).days; const time = it.type==="unplanned"?d.time:(it.habit||{}).time; const min = it.type==="unplanned"?d.minimum:(it.habit||{}).minimum;
-  if(type==="habit") ctx += ` Days: ${(days||[]).map(x=>DOWL[x]).join(", ")||"not set"}. Time: ${time||"not set"}. Minimum: ${min||10} min.`;
+  if(type==="habit") ctx += ` How often: ${freqText(it.type==="unplanned"?d:(it.habit||{}))}. Time: ${time||"not set"}. Minimum: ${min||10} min.`;
   if((it.steps||[]).length) ctx += ` Current steps: ${it.steps.map(s=>(s.done?"[done] ":"")+s.title).join("; ")}.`;
   if(d.cls||it.cls) ctx += ` Class: ${d.cls||it.cls}.`;
   if(d.why||it.why) ctx += ` Why it matters: ${d.why||it.why}.`;
@@ -721,7 +814,7 @@ function finishPlan(it, then){
   const d = it.draft; if(!d || !d.type) return;
   const nameEl = $("#nameIn"); const name = ((nameEl && nameEl.value) || d.title || (it.ai&&it.ai.titles&&it.ai.titles[d.type]) || it.raw).trim();
   if(d.type==="event" && !d.date){ toast("Pick a date for the event first."); return; }
-  if(d.type==="habit" && !d.days.length){ toast("Pick at least one day."); return; }
+  if(d.type==="habit" && !freqValid(d)){ toast(freqOf(d)==="slots"?"Add at least one time of day.":"Pick at least one day."); return; }
   it.title = name.slice(0,80); it.type = d.type; it.status = "open"; it.plannedAt = Date.now();
   const feeling = feelFrom(d.feelVal);
   if(d.type==="task"){
@@ -732,7 +825,9 @@ function finishPlan(it, then){
   if(d.type==="assignment"){ it.cls = d.cls||""; it.due = d.due||null; it.feeling = feeling; it.steps = it.steps||[]; it.minutesLogged = it.minutesLogged||0; }
   if(d.type==="goal"){ it.why = d.why||""; it.cap = d.cap||""; it.due = d.target==="date"?(d.due||null):null; it.steps = it.steps||[]; it.minutesLogged = it.minutesLogged||0;
     if(d.why && !(it.notes||"").includes(d.why)) it.notes = ((it.notes||"") + "\n- Why it matters: " + d.why).trim(); }
-  if(d.type==="habit"){ const tm = d.time==="pick"?"":d.time; it.habit = {days:d.days.slice().sort(), time:tm||"", minimum:parseInt(d.minimum)||10, log:(it.habit&&it.habit.log)||{}, skip:{}, routine:it.routine||{}}; }
+  if(d.type==="habit"){ const tm = d.time==="pick"?"":d.time, f = freqOf(d);
+    it.habit = {freq:f, days:(f==="count"?[0,1,2,3,4,5,6]:d.days.slice().sort()), perWeek:parseInt(d.perWeek)||3, slots:(d.slots||[]).map(s=>({...s, label:(s.label||"").trim()||"Slot"})), minSlots:parseInt(d.minSlots)||0,
+      time:f==="slots"?"":(tm||""), minimum:parseInt(d.minimum)||10, log:(it.habit&&it.habit.log)||{}, skip:{}, slotLog:{}, excuse:{}, routine:it.routine||{}}; }
   if(d.type==="event"){ it.event = {date:d.date, time:d.etime||"", repeat:d.repeat}; it.feeling = feeling; }
   if(d.type==="idea"){ it.spark = {source:d.source||"", thought:d.thought||"", date:todayStr()}; if(d.thought && !(it.notes||"").includes(d.thought)) it.notes = ((it.notes||"")+"\n- First thought: "+d.thought).trim(); it.ideaTab = then==="think"?"think":"shape"; }
   delete it.draft;
@@ -748,12 +843,19 @@ function renderItem(it){
   let h = `<div class="card" style="gap:6px"><label for="renameIn" class="tiny muted" style="font-weight:600">${TYPES[type]||"Item"} · name</label><input id="renameIn" class="dump" data-rename="${it.id}" value="${esc(it.title)}" style="background:var(--bg);font-weight:700"><span class="tiny muted">You dumped: "${esc(it.raw)}"</span></div>`;
   if(it.status==="done") h += `<div class="card" style="background:var(--green-soft);gap:8px"><b style="color:var(--green)">${ico("check",18)} Completed${it.doneAt?" "+new Date(it.doneAt).toLocaleDateString(undefined,{month:"short",day:"numeric"}):""}</b><div class="row" style="gap:8px"><button class="btn ghost" data-reopen="${it.id}" style="flex:1;background:var(--surface)">Reopen</button><button class="btn ghost" data-delitem="${it.id}" style="flex:1;background:var(--surface);color:var(--coral)">Delete forever</button></div></div>`;
   if(type==="habit"){
-    const st = habitStats(it), t = todayStr();
-    h += `<div class="row" style="gap:8px">${[[st.thisWeek+" of "+st.target,"this week"],[st.last30+" of 30","last 30 days"],[st.total,"in total"]].map(([a,b])=>`<div class="card" style="flex:1;padding:10px;gap:0"><b>${a}</b><span class="tiny muted">${b}</span></div>`).join("")}</div>`;
-    h += `<div class="card" style="gap:10px"><b>Schedule</b><div style="display:flex;gap:4px">${DOW.map((l,k)=>`<button data-hday="${k}" aria-pressed="${it.habit.days.includes(k)}" aria-label="${DOWL[k]}" class="daybtn${it.habit.days.includes(k)?" on":""}">${l}</button>`).join("")}</div>
-      <label class="tiny muted" style="font-weight:600">Reminder time<input type="time" class="dump" data-htime value="${esc(it.habit.time)}" style="margin-top:6px;background:var(--bg)"></label>
-      <div><span class="tiny muted" style="font-weight:600">Minimum</span><div class="tags" style="margin-top:6px">${[2,5,10,20,30,45,60].map(m=>chipBtn(m+" min",`data-hmin="${m}"`,it.habit.minimum==m)).join("")}</div></div>
-      ${st.log[t]?`<span class="small" style="color:var(--green);font-weight:600">${ico("check",16)} Done today</span>`:`<button class="btn coral" data-hdone="${it.id}">Mark done today</button>`}</div>`;
+    const st = habitStats(it), t = todayStr(), hb = it.habit, slots = freqOf(hb)==="slots";
+    h += `<div class="row" style="gap:8px">${[[st.thisWeek+" of "+st.target,"this week"],[st.last30+" of "+st.of30,"last 30 days"],[st.total,"in total"]].map(([a,b])=>`<div class="card" style="flex:1;padding:10px;gap:0"><b>${a}</b><span class="tiny muted">${b}</span></div>`).join("")}</div>`;
+    const sug = excuseWeekday(it);
+    if(sug) h += `<div class="card" style="gap:8px;background:var(--blue-soft)"><span class="small">${sug.count} of your recent "Something came up" notes landed on a ${DOWL[sug.dow]}. Move ${esc(it.title)} off ${DOWL[sug.dow]}s?</span><div class="row" style="gap:8px"><button class="btn ink" data-moveoff="${sug.dow}" style="flex:1;min-height:40px">Move off ${DOWL[sug.dow]}</button><button class="btn ghost" data-keepday="${sug.dow}" style="flex:1;min-height:40px;background:var(--surface)">Keep it</button></div></div>`;
+    let today = "";
+    if(slots && onDay(hb,t)){ const dn = slotsDone(hb,t);
+      today = `<div class="row" style="justify-content:space-between"><b>Today</b><span class="tiny muted">${dn.length} of ${(hb.slots||[]).length} · counts at ${slotNeed(hb)}</span></div>${(hb.slots||[]).map(s=>{ const on=dn.includes(s.id); return `<button class="slotrow${on?" on":""}" data-hslot="${s.id}" aria-pressed="${on}"><i>${on?ico("check",14,"#fff"):""}</i><b>${esc(s.label)}</b><span>${s.time?timeLabel(s.time):""}</span></button>`; }).join("")}${st.log[t]?`<span class="small" style="color:var(--green);font-weight:600">${ico("check",16)} Today counts</span>`:""}`; }
+    else if(!slots) today = st.log[t]?`<span class="small" style="color:var(--green);font-weight:600">${ico("check",16)} Done today</span>`:(st.exc[t]?"":`<button class="btn coral" data-hdone="${it.id}">Mark done today</button>`);
+    const ex = excuseRow(it);
+    if(today || ex) h += `<div class="card" style="gap:8px">${today}${ex}</div>`;
+    h += `<div class="card" style="gap:12px"><b>Schedule</b>${freqEditor(hb)}
+      ${slots?"":`<label class="tiny muted" style="font-weight:600">Reminder time<input type="time" class="dump" data-htime value="${esc(hb.time)}" style="margin-top:6px;background:var(--bg)"></label>`}
+      <div><span class="tiny muted" style="font-weight:600">Minimum</span><div class="tags" style="margin-top:6px">${[2,5,10,20,30,45,60].map(m=>chipBtn(m+" min",`data-hmin="${m}"`,hb.minimum==m)).join("")}</div></div></div>`;
     it.routine = it.habit.routine;
     h += chatBlock(it, "habit");
   } else if(type==="assignment" || type==="goal"){

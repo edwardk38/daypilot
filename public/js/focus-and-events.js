@@ -84,7 +84,7 @@ function endFocus(kind){
   clearInterval(tick);
   const target = focus.ref.kind==="step" ? info.step : it;
   if(kind==="done"){
-    if(focus.ref.kind==="habit"){ logHabit(it); }
+    if(focus.ref.kind==="habit"){ habitTap(it); }
     else { logDone("step"); if(focus.ref.kind==="step") completeStep(it, info.step, workedMin); else { it.status="done"; it.doneAt=new Date().toISOString(); delete it.remaining; } }
     addMin(Math.max(1, sessionMin)); save();
     const ref = focus.ref; focus = null; persistFocus();
@@ -101,6 +101,11 @@ function endFocus(kind){
   }
 }
 
+function saveExcuse(id, day){
+  const it=itemById(id), v=(($("#excIn")||{}).value||"").trim(); if(!v){ $("#excIn").focus(); return; }
+  it.habit.excuse=it.habit.excuse||{}; it.habit.excuse[day]=v.slice(0,80); save();
+  const sc=$("#scrim"); if(sc) sc.remove(); if(ov) renderOv(); else render(); toast("Noted. That day won't count as a miss.");
+}
 /* ---------------- Events ---------------- */
 document.addEventListener("click", e => {
   const b = e.target.closest("button, a"); if(!b) return;
@@ -126,7 +131,10 @@ document.addEventListener("click", e => {
   if(d.open){ openOv("item", d.open); return; }
   if(d.goTask!==undefined){ startFocus({kind:d.step?"step":"task", itemId:d.goTask, stepId:d.step||null}); return; }
   if(d.hstart){ startFocus({kind:"habit", itemId:d.hstart}); return; }
-  if(d.hdone){ const it=itemById(d.hdone); const ok=logHabit(it); save(); toast(ok?`${it.title} · done today`:"Already done today"); if(ov) renderOv(); else render(); return; }
+  if(d.hdone){ const it=itemById(d.hdone); const slots=freqOf(it.habit)==="slots"; const ok=habitTap(it); save(); toast(!ok?"Already done today":slots?`${it.title} · ${slotsDone(it.habit).length} of ${(it.habit.slots||[]).length} today`:`${it.title} · done today`); if(ov) renderOv(); else render(); return; }
+  if(d.excuse){ excuseSheet(itemById(d.excuse), d.day); return; }
+  if(d.excsave){ saveExcuse(d.excsave, d.day); return; }
+  if(d.unexcuse){ const it=itemById(d.unexcuse); delete (it.habit.excuse||{})[d.day]; save(); toast("Note removed"); if(ov) renderOv(); else render(); return; }
   if(d.hskip){ const it=itemById(d.hskip); it.habit.skip=it.habit.skip||{}; it.habit.skip[todayStr()]=true; save(); toast("Skipped for today. No penalty."); render(); return; }
   // plan-it controls
   if(ov && ov.kind==="plan"){
@@ -137,7 +145,6 @@ document.addEventListener("click", e => {
     if(d.finish){ finishPlan(it, d.then); return; }
     if(d.ptype){ it.draft.type=d.ptype; if(it.draft.step>0) it.draft.step=1; save(); renderOv(); return; }
     if(d.pf){ it.draft[d.pf] = it.draft[d.pf]==d.v && d.pf==="feeling" ? null : d.v; save(); renderOv(); return; }
-    if(d.pday!==undefined){ const k=+d.pday; const a=it.draft.days; it.draft.days = a.includes(k)?a.filter(x=>x!==k):a.concat(k).sort(); save(); renderOv(); return; }
     if(d.notquite){ it.correcting=true; renderOv(); const c=$("#corrIn"); if(c) c.focus(); return; }
     if(d.corr){ const v=($("#corrIn").value||"").trim(); if(v) understand(it, v); return; }
 
@@ -148,7 +155,9 @@ document.addEventListener("click", e => {
     if(d.ideatab){ it.ideaTab=d.ideatab; save(); renderOv(); return; }
     if(d.thinktime){ S.items.push({id:uid(), raw:"Think it through: "+it.title, title:"Think it through: "+it.title, type:"task", minutes:30, due:todayStr(), at:"", noTime:true, status:"open", created:Date.now(), planned:true, linkedIdea:it.id}); save(); toast("Added a 30-minute thinking block to today's Tasks"); return; }
     if(d.turninto){ const sh=document.createElement("div"); sh.className="scrim"; sh.id="scrim"; sh.innerHTML=`<div class="sheet" role="dialog" aria-modal="true" aria-label="Turn it into"><div class="grab"></div><b style="font-size:20px">Turn it into…</b>${["goal","assignment","task","habit"].map(k=>{const t=TYPE_INFO[k]; return `<button class="typecard row" data-turnto="${k}" style="--c:${t.col};flex-direction:row;align-items:center;gap:12px;padding:12px 14px"><span class="ti">${ico(t.icon,20,t.col)}</span><span style="display:flex;flex-direction:column;align-items:flex-start"><b>${t.label}</b><span>${t.desc}</span></span></button>`;}).join("")}<div class="fact small"><b>Comes with it:</b> your take and notes${(it.spark||{}).source?", the source":""}${it.chat&&it.chat.length?", and your conversation":""}. The plan's first steps can be built from them.</div></div>`; $("#app").appendChild(sh); return; }
-    if(d.hday!==undefined){ const k=+d.hday; const a=it.habit.days; it.habit.days = a.includes(k)?a.filter(x=>x!==k):a.concat(k).sort(); if(!it.habit.days.length) it.habit.days=[k]; save(); renderOv(); return; }
+    if(d.hslot){ const on=slotsDone(it.habit).includes(d.hslot); if(on) uncheckSlot(it, d.hslot); else checkSlot(it, d.hslot); save(); renderOv(); return; }
+    if(d.moveoff!==undefined){ const k=+d.moveoff; it.habit.days=it.habit.days.filter(x=>x!==k); save(); renderOv(); toast(`Moved off ${DOWL[k]}s`); return; }
+    if(d.keepday!==undefined){ it.habit.keepDay=(it.habit.keepDay||[]).concat(+d.keepday); save(); renderOv(); return; }
     if(d.hmin){ it.habit.minimum=+d.hmin; save(); renderOv(); return; }
     if(d.stepdone){ const s=it.steps.find(x=>x.id===d.stepdone); logDone("step"); completeStep(it,s,0); save(); toast("Step logged"); if(it.status==="done"){ closeOv(); toast(`${it.title} complete!`); } else renderOv(); return; }
     if(d.complete){ markStart(); it.status="done"; it.doneAt=new Date().toISOString(); save(); closeOv(); toast(`${it.title} complete!`); return; }
@@ -156,6 +165,17 @@ document.addEventListener("click", e => {
     if(d.replan){ it.draft={type:null,minutes:null,due:"",feeling:null,days:[0,1,2,3,4,5,6],time:"",minimum:10,date:"",etime:"",title:""}; it.type="unplanned"; save(); openOv("plan", it.id); return; }
     if(d.delitem){ if(confirm(it.status==="done"?`Delete "${it.title}" forever?`:`Delete "${it.title}"?`)){ S.items=S.items.filter(x=>x.id!==it.id); save(); closeOv(); toast("Deleted"); } return; }
     if(d.reopen){ it.status="open"; delete it.doneAt; if(it.steps) it.steps.forEach(s=>{}); save(); renderOv(); toast("Reopened"); return; }
+  }
+  if(ov && (d.hf || d.hfday!==undefined || d.slotadd!==undefined || d.slotpreset || d.slotdel || d.slotrem)){
+    const it = itemById(ov.id), H = ov.kind==="plan" ? it.draft : it.habit;
+    if(d.hf==="freq"){ H.freq=d.v; if(d.v==="count") H.perWeek=H.perWeek||3; if(d.v!=="count" && !(H.days||[]).length) H.days=[0,1,2,3,4,5,6]; if(d.v==="count" || (d.v==="slots" && ov.kind==="plan")) H.days=[0,1,2,3,4,5,6]; }
+    else if(d.hf) H[d.hf] = +d.v;
+    if(d.hfday!==undefined){ const k=+d.hfday, a=H.days||[]; H.days = a.includes(k)?a.filter(x=>x!==k):a.concat(k).sort(); if(ov.kind==="item" && !H.days.length) H.days=[k]; }
+    if(d.slotadd!==undefined){ H.slots=(H.slots||[]).concat({id:uid(), label:"", time:"", remind:false}); }
+    if(d.slotpreset){ H.slots=SLOT_PRESETS[d.slotpreset].map(l=>({id:uid(), label:l, time:"", remind:false})); H.minSlots=0; }
+    if(d.slotdel){ if(ov.kind==="item" && (H.slots||[]).length<=1){ toast("A several-times-a-day habit needs at least one."); return; } H.slots=H.slots.filter(s=>s.id!==d.slotdel); if(H.minSlots>H.slots.length) H.minSlots=0; }
+    if(d.slotrem){ const s=H.slots.find(x=>x.id===d.slotrem); if(s && s.time){ s.remind=!s.remind; toast(s.remind?`Reminder on at ${timeLabel(s.time)}`:"Reminder off"); } }
+    save(); renderOv(); return;
   }
   if(ov){
     const it = itemById(ov.id);
@@ -184,6 +204,9 @@ document.addEventListener("change", e => {
   if(t.dataset.rename!==undefined){ const v=t.value.trim(); if(v){ it.title=v.slice(0,80); save(); toast("Renamed"); } return; }
   if(t.dataset.notes!==undefined){ it.notes=t.value.slice(0,3000); save(); toast("Notes saved"); return; }
   if(t.dataset.htime!==undefined){ it.habit.time=t.value; save(); return; }
+  if(t.dataset.slotlabel || t.dataset.slottime){ const H = ov.kind==="plan" ? it.draft : it.habit; const s=(H.slots||[]).find(x=>x.id===(t.dataset.slotlabel||t.dataset.slottime)); if(!s) return;
+    if(t.dataset.slotlabel){ s.label=t.value.trim().slice(0,30) || (ov.kind==="item"?s.label:""); save(); return; }
+    const had=!!s.time; s.time=t.value; if(s.time && !had) s.remind=true; save(); renderOv(); return; }
   if(t.dataset.stepedit){ const s=it.steps.find(x=>x.id===t.dataset.stepedit); if(s){ s.title=t.value.slice(0,80); save(); } return; }
   if(t.dataset.routine!==undefined){ const tgt = it.type==="habit"?it.habit:it; tgt.routine=tgt.routine||{}; tgt.routine[t.dataset.routine]=t.value.slice(0,60); if(it.type!=="habit") it.routine=tgt.routine; save(); return; }
 });
@@ -192,6 +215,7 @@ document.addEventListener("keydown", e => {
   if(e.key==="Enter" && e.target){
     if(e.target.id==="dumpIn"){ e.preventDefault(); doDump(); return; }
     if(e.target.id==="chatIn"){ e.preventDefault(); const v=e.target.value; e.target.value=""; sendChat(v); return; }
+    if(e.target.id==="excIn"){ e.preventDefault(); const b=$("[data-excsave]"); if(b) saveExcuse(b.dataset.excsave, b.dataset.day); return; }
     if(e.target.id==="corrIn"){ e.preventDefault(); const v=e.target.value.trim(); if(v) understand(itemById(ov.id), v); return; }
   }
   if(e.key==="Escape"){ const sc=$("#scrim"); if(sc){ if(ov) sc.remove(); else closeOverlay(); } else if(ov) closeOv(); }

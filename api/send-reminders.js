@@ -13,8 +13,18 @@ function dueSoon(state, now){
   const soon = s => { const m = toMin(s); return m >= mins && m < mins + 5; };
   for(const it of state.items || []){
     if(it.status !== "open") continue;
-    if(it.type === "habit" && it.habit && it.habit.time && (it.habit.days||[]).includes(dow) && !(it.habit.log||{})[t] && soon(it.habit.time))
-      out.push({ tag: `h:${it.id}:${t}`, title: it.title, body: `Time for ${it.title}. Even ${it.habit.minimum||10} minutes counts.` });
+    const h = it.type === "habit" && it.habit;
+    // Habits: skipped on excused days ("Something came up"). Several-times-a-day habits remind per slot.
+    const sun = new Date(now); sun.setDate(now.getDate() - dow);
+    const weekMet = h && h.freq === "count" && Object.keys(h.log||{}).filter(d => d >= ymd(sun) && d <= t).length >= (h.perWeek||3);
+    if(h && !(h.excuse||{})[t] && !weekMet && (h.freq === "count" || (h.days||[]).includes(dow))){
+      if(h.freq === "slots"){
+        const done = (h.slotLog||{})[t] || [];
+        for(const s of h.slots || []) if(s.time && s.remind && !done.includes(s.id) && soon(s.time))
+          out.push({ tag: `h:${it.id}:${s.id}:${t}`, title: it.title, body: `${s.label}: time for ${it.title}.` });
+      } else if(h.time && !(h.log||{})[t] && soon(h.time))
+        out.push({ tag: `h:${it.id}:${t}`, title: it.title, body: `Time for ${it.title}. Even ${h.minimum||10} minutes counts.` });
+    }
     if(it.type === "task" && it.at && it.due === t && soon(it.at))
       out.push({ tag: `t:${it.id}:${t}`, title: it.title, body: "You planned this for now. Start, swap, or push it." });
   }

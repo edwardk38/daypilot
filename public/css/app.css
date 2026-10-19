@@ -214,3 +214,9 @@ em.dd,em.de{display:inline-block;width:6px;height:6px;border-radius:3px;backgrou
 .route{display:flex;gap:4px}.route i{flex:1;height:6px;border-radius:3px;background:#2A3A5E}.route i.done{background:#8FD3AE}.route i.cur{background:#FF8A7E}
 .nh-streak{position:absolute;right:16px;top:16px;max-width:52%;padding:6px 12px;border-radius:12px;background:rgba(255,255,255,.94);display:flex;flex-direction:column;align-items:flex-end;text-align:right}
 .nh-streak b{font-size:15px;line-height:1.25}.nh-streak span{font-size:11px;color:#52607A}
+.sdots{display:inline-flex;gap:3px;vertical-align:middle}.sdots i{width:8px;height:8px;border-radius:4px;box-shadow:0 0 0 1.5px var(--blue) inset}.sdots i.on{background:var(--blue)}
+.sdots.big{gap:6px}.sdots.big i{width:14px;height:14px;border-radius:7px;box-shadow:0 0 0 2px var(--blue) inset}
+.slotrow{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:6px 4px;border:none;border-bottom:1px solid var(--line);background:none;text-align:left;color:var(--ink)}
+.slotrow i{width:24px;height:24px;flex-shrink:0;border-radius:12px;box-shadow:0 0 0 2px var(--blue) inset;display:flex;align-items:center;justify-content:center}.slotrow.on i{background:var(--blue)}
+.slotrow b{flex:1;font-weight:600}.slotrow span{font-size:12px;color:var(--muted)}
+.iconbtn[disabled]{cursor:default}
