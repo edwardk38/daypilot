@@ -110,7 +110,7 @@ function saveExcuse(id, day){
 document.addEventListener("click", e => {
   const b = e.target.closest("button, a"); if(!b) return;
   const d = b.dataset;
-  if(d.tab){ if(d.tab==="itin"){ itinDate=todayStr(); itinView=itinView||"day"; tlScrolled=null; } tab=d.tab; const o=$("#ov"); if(o && !(focus && !focus.hidden)){ o.remove(); ov=null; } render(); $("#main").scrollTop=0; return; }
+  if(d.tab){ if(d.tab==="itin"){ itinDate=todayStr(); itinView=itinView||"day"; tlScrolled=null; resetItinSel(); } tab=d.tab; const o=$("#ov"); if(o && !(focus && !focus.hidden)){ o.remove(); ov=null; } render(); $("#main").scrollTop=0; return; }
   if("fhide" in d){ hideFocus(); return; }
   if("emenu" in d){ energyMenu=!energyMenu; render(); return; }
   if(d.strip!==undefined){ stripOpen = stripOpen==+d.strip ? -1 : +d.strip; render(); return; }

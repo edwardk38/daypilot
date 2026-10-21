@@ -47,6 +47,7 @@ The travel theme (miles, flights, the map, passport and stamps, country pages, t
 - **Habits:** frequency is *days a week* (any days; shows on Now until the week's number is reached), *specific days*, or *several times a day* (named slots tied to a routine or time, each with an optional reminder, checked off separately, shown as dots ●●○ on Now, Itinerary and the habit page; the day counts once the minimum number of slots is done, default all). Numbers: this week against the target, last 30 days, lifetime total, and a consistency level from the last 30 days (in the spec, not built yet). **No streaks on habits.**
 - **Something came up:** on a habit's day, or the next morning, a one-line note excuses the day; excused days never count as misses in any habit number. If 3+ notes land on the same weekday in the last 6 weeks, suggest moving the habit off that day (the user confirms or keeps it).
 - **Itinerary:** drag-to-plan day view (tray + timeline, press-and-hold chip options: Not today, No time needed, Leave out of auto-planning), Fill my day (proposal → Keep/Undo), week view (drop onto days), month view (deadline statuses), auto-planning setting (Off / Suggest each morning [default] / Automatic), focus window, rest days.
+- **Week and Month views:** tapping a day opens an in-place overview panel (today preselected); Open day goes to Day view. Drag-and-drop unchanged.
 - **Hours focused** = actual timer time.
 
 ## Roadmap (do in order; one PR-sized change at a time)

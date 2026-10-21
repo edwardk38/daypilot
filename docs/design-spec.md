@@ -326,6 +326,7 @@ Itinerary's day view lists what's to place today beside a timeline; the user dra
 - **Week view:** "To place this week" tray; each day is a row with event chips colored by feeling, planned work and a load meter; rest days marked. Drag onto a day; the drop target shows its free hours. Fill my week works the same way.
 - **Month view:** Sunday-first calendar with deadline and event dots, rest days tinted, Tight deadlines outlined; a deadline list shows each status (On track, Tight, At risk, No plan yet).
 - **Levels:** month for spotting crunches, week for spreading work across days, day for arranging hours.
+- **Day overview (Oct 21, 2026):** in Week and Month views, tapping a day selects it and opens an overview right there (under the row in Week, under the grid in Month): date, a summary line, then events and due dates, steps, and habits (with slot dots), and an Open day button. Today is preselected. Month dates show up to three dots: gray events, coral steps and due dates, blue habits. Dragging onto a day in Week view works as before.
 
 ## Design pass: Plan it (decided)
 

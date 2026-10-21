@@ -1,6 +1,6 @@
 /* ================= Itinerary (v0.6) ================= */
 const HPX = 52, DAY0 = 6, DAY1 = 24;
-let itinView = "day", itinDate = null, tlScrolled = null, tlScrollTop = 0;
+let itinView = "day", itinDate = null, tlScrolled = null, tlScrollTop = 0, itinSel = null, itinSelNew = false;
 const refKey = r => `${r.kind}:${r.itemId}:${r.stepId||""}`;
 const hm = s => { if(!s) return null; const [h,m]=s.split(":").map(Number); return h+m/60; };
 const toHM = h => { const hh=Math.floor(h), mm=Math.round((h-hh)*60); return String(hh).padStart(2,"0")+":"+String(mm===60?0:mm).padStart(2,"0"); };
@@ -96,6 +96,46 @@ function deadlineStatus(it){
   if(remaining > cap*0.6) return {lab:"Tight", cls:"due"};
   return {lab:"On track", cls:"exc"};
 }
+/* ---- day overview (Week and Month views): tapping a day opens this in place ---- */
+function dayName(s){ return dateObj(s).toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"}); }
+function eventsOn(date){
+  const dow=dateObj(date).getDay();
+  return S.items.filter(it=>it.type==="event" && it.status==="open" && it.event && (it.event.date===date || (it.event.repeat==="weekly" && dateObj(it.event.date).getDay()===dow && it.event.date<=date)));
+}
+// Everything on a day, grouped the way the panel lists it.
+function dayItems(date){
+  const t=todayStr(), out={events:[], steps:[], habits:[]}, seen=new Set();
+  eventsOn(date).forEach(it=>out.events.push({at:it.event.time||"", title:it.title, id:it.id, kind:"event"}));
+  S.items.filter(it=>it.status==="open" && it.due===date && (it.type==="assignment"||it.type==="goal")).forEach(it=>out.events.push({at:"", title:it.title, id:it.id, kind:"due"}));
+  plansFor(date).filter(p=>!p.proposed && p.ref.kind!=="habit").forEach(p=>{ const inf=refTitle(p.ref); if(!inf) return; seen.add(refKey(p.ref)); out.steps.push({at:p.start, title:inf.title, sub:inf.sub!=="Task"?inf.sub:"", id:p.ref.itemId, done:inf.done}); });
+  S.items.filter(it=>it.type==="task" && it.at && it.due===date && !seen.has(refKey({kind:"task",itemId:it.id}))).forEach(it=>{ seen.add(refKey({kind:"task",itemId:it.id})); out.steps.push({at:it.at, title:it.title, id:it.id, done:it.status==="done"}); });
+  trayFor(date).filter(x=>x.ref.kind!=="habit" && !seen.has(refKey(x.ref))).forEach(x=>out.steps.push({at:"", title:x.title, sub:x.sub!=="Task"&&x.sub!=="Your pick"?x.sub:"", id:x.ref.itemId}));
+  S.items.filter(it=>it.type==="habit" && it.status==="open" && it.habit).forEach(it=>{ const h=it.habit, log=(h.log||{})[date], exc=(h.excuse||{})[date];
+    const show = freqOf(h)==="count" ? (log || (date>=t && habitDue(it,date))) : onDay(h,date);
+    if(show) out.habits.push({at:freqOf(h)==="slots"?"":(h.time||""), title:it.title, id:it.id, done:!!log, exc, dots:freqOf(h)==="slots"?slotDots(h,date):""}); });
+  const byTime = (a,b)=>(a.at||"99").localeCompare(b.at||"99");
+  out.events.sort(byTime); out.steps.sort(byTime); out.habits.sort(byTime);
+  return out;
+}
+function dayKinds(date){ const d=dayItems(date); return {event:d.events.some(e=>e.kind==="event"), step:d.steps.length>0 || d.events.some(e=>e.kind==="due"), habit:d.habits.length>0}; }
+function dayOverview(date){
+  const d = dayItems(date), nEv=d.events.filter(e=>e.kind==="event").length, nDue=d.events.length-nEv;
+  const plural = (n,w) => `${n} ${w}${n===1?"":"s"}`;
+  const parts = [nEv&&plural(nEv,"event"), nDue&&`${nDue} due`, d.steps.length&&plural(d.steps.length,"step"), d.habits.length&&plural(d.habits.length,"habit")].filter(Boolean);
+  const title = dateObj(date).toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"}) + (date===todayStr()?" (today)":"");
+  const row = (x, col, lead) => `<button class="ovrow${x.done?" done":""}" data-open="${x.id}" style="--c:${col}"><span class="ovt">${x.at?timeLabel(x.at):lead}</span><b>${x.dots?x.dots+" ":""}${esc(x.title)}</b>${x.sub?`<span class="tiny muted">${esc(x.sub)}</span>`:""}${x.exc?`<span class="tiny muted">Something came up</span>`:""}</button>`;
+  const body = parts.length
+    ? d.events.map(x=>row(x, x.kind==="due"?"var(--coral)":"var(--muted)", x.kind==="due"?"Due":"All day")).join("") + d.steps.map(x=>row(x,"var(--coral)","Anytime")).join("") + d.habits.map(x=>row(x,"var(--blue)","Anytime")).join("")
+    : `<p class="small muted" style="margin:0">A free day. Tap Open day to plan something.</p>`;
+  const anim = itinSelNew; itinSelNew = false; // animate only when the panel opens, not on every redraw
+  return `<section class="dayov${anim?" anim":""}" aria-label="Overview of ${dayName(date)}"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><b style="font-size:16px">${title}</b><br><span class="tiny muted">${parts.join(", ")||"Nothing planned"}</span></div><button class="iconbtn" data-iclose aria-label="Close day overview" style="width:36px;height:36px">${ico("close",18)}</button></div>${body}<button class="btn ink" data-idate="${date}" data-iv="day" style="width:100%;min-height:44px">Open day</button></section>`;
+}
+// Today is selected when Week or Month opens, if it's on screen.
+function visibleInItin(s){ if(!s || !itinDate) return false; const a=dateObj(itinDate), b=dateObj(s);
+  if(itinView==="week"){ const sun=shiftDate(itinDate,-a.getDay()); return s>=sun && s<=shiftDate(sun,6); }
+  if(itinView==="month") return a.getMonth()===b.getMonth() && a.getFullYear()===b.getFullYear();
+  return false; }
+function resetItinSel(){ itinSel = visibleInItin(todayStr()) ? todayStr() : null; }
 /* ---- views ---- */
 function itinHeader(){
   const d = itinDate; const ds=dateObj(d); const sun=new Date(ds); sun.setDate(ds.getDate()-ds.getDay());
@@ -151,7 +191,8 @@ function weekView(date){
     const load = mins>300?3:mins>150?2:mins>0?1:0; const isRest=rest.includes(k);
     const evs = fx.map(f=>`<span class="evc ${f.feeling==="excited"?"x":f.feeling==="scary"?"d":""}">${timeLabel(toHM(f.h)).replace(":00","")} ${esc(f.title)}</span>`).join("");
     const work = (pl.length+tr) ? `${pl.length+tr} thing${pl.length+tr>1?"s":""} planned${pl.length?` · ${pl.length} placed`:""}` : "";
-    h += `<button class="wrow${xs===t?" today":""}${isRest?" rest":""}" data-dropday="${xs}" data-idate="${xs}" data-iv="day"><div class="wd"><span>${"SunMonTueWedThuFriSat".substr(k*3,3)}</span><b>${x.getDate()}</b></div><div class="wmid"><div class="tags">${evs||`<span class="tiny muted">${isRest?"Rest day":"Open"}</span>`}</div>${work?`<span class="tiny" style="color:var(--ink2)">${work}</span>`:""}</div>${isRest?`<span class="chip exc">Rest</span>`:`<div class="loadb">${[0,1,2].map(i=>`<i style="background:${i<load?"var(--blue)":"var(--line)"}"></i>`).join("")}</div>`}</button>`;
+    h += `<button class="wrow${xs===t?" today":""}${isRest?" rest":""}${xs===itinSel?" sel":""}" data-dropday="${xs}" data-iday="${xs}" aria-pressed="${xs===itinSel}" aria-label="${dayName(xs)}"><div class="wd"><span>${"SunMonTueWedThuFriSat".substr(k*3,3)}</span><b>${x.getDate()}</b></div><div class="wmid"><div class="tags">${evs||`<span class="tiny muted">${isRest?"Rest day":"Open"}</span>`}</div>${work?`<span class="tiny" style="color:var(--ink2)">${work}</span>`:""}</div>${isRest?`<span class="chip exc">Rest</span>`:`<div class="loadb">${[0,1,2].map(i=>`<i style="background:${i<load?"var(--blue)":"var(--line)"}"></i>`).join("")}</div>`}</button>`;
+    if(xs===itinSel) h += dayOverview(xs);
   }
   return h + `</div>`;
 }
@@ -165,11 +206,13 @@ function monthView(date){
   for(let d=1; d<=days; d++){
     const xs = todayStr(new Date(ds.getFullYear(), ds.getMonth(), d)); const dw=(first.getDay()+d-1)%7;
     const tight = (dues[xs]||[]).some(i=>{ const s=deadlineStatus(i); return s && (s.lab==="Tight"||s.lab==="At risk"); });
-    cells += `<button class="mcell${xs===t?" today":""}${rest.includes(dw)?" rest":""}${tight?" tight":""}" data-idate="${xs}" data-iv="day" aria-label="${xs}"><span>${d}</span><i>${dues[xs]?'<em class="dd"></em>':""}${evs[xs]?'<em class="de"></em>':""}</i></button>`;
+    const k = dayKinds(xs);
+    cells += `<button class="mcell${xs===t?" today":""}${rest.includes(dw)?" rest":""}${tight?" tight":""}${xs===itinSel?" sel":""}" data-iday="${xs}" aria-pressed="${xs===itinSel}" aria-label="${dayName(xs)}"><span>${d}</span><i>${k.event?'<em class="de"></em>':""}${k.step?'<em class="dd"></em>':""}${k.habit?'<em class="dh"></em>':""}</i></button>`;
   }
   const list = S.items.filter(i=>i.status==="open" && i.due && (i.type==="assignment"||i.type==="goal"||i.type==="task") && dateObj(i.due).getMonth()===ds.getMonth() && i.due>=t).sort((a,b)=>a.due.localeCompare(b.due)).slice(0,8);
   return `<div class="pad" style="padding-top:0"><div class="card" style="padding:10px;gap:6px"><div class="mgrid">${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(x=>`<span class="tiny muted" style="text-align:center;font-weight:600">${x}</span>`).join("")}${cells}</div>
-    <div class="row tiny muted" style="gap:12px;flex-wrap:wrap;padding:4px"><span class="row" style="gap:4px"><em class="dd"></em>Deadline</span><span class="row" style="gap:4px"><em class="de"></em>Event</span><span class="row" style="gap:4px"><em style="width:10px;height:10px;border-radius:3px;box-shadow:0 0 0 2px var(--gem) inset"></em>Tight</span></div></div>
+    <div class="row tiny muted" style="gap:12px;flex-wrap:wrap;padding:4px"><span class="row" style="gap:4px"><em class="de"></em>Event</span><span class="row" style="gap:4px"><em class="dd"></em>Step or due date</span><span class="row" style="gap:4px"><em class="dh"></em>Habit</span><span class="row" style="gap:4px"><em style="width:10px;height:10px;border-radius:3px;box-shadow:0 0 0 2px var(--gem) inset"></em>Tight</span></div></div>
+    ${itinSel && dateObj(itinSel).getMonth()===ds.getMonth() && dateObj(itinSel).getFullYear()===ds.getFullYear() ? dayOverview(itinSel) : ""}
     <b>Deadlines</b>${list.length?list.map(i=>{ const s=deadlineStatus(i)||{lab:"",cls:""}; const dt=dateObj(i.due); return `<button class="item" data-open="${i.id}" style="flex-direction:row;align-items:center;gap:12px;border:none;width:100%;text-align:left"><div style="width:40px;text-align:center"><span class="tiny muted">${dt.toLocaleDateString(undefined,{month:"short"})}</span><br><b>${dt.getDate()}</b></div><span style="flex:1;font-weight:600">${esc(i.title)}</span>${s.lab?`<span class="chip ${s.cls}">${s.lab}</span>`:""}</button>`; }).join(""):`<p class="small muted" style="margin:0">No deadlines left this month.</p>`}</div>`;
 }
 /* ---- drag and drop ---- */
@@ -258,9 +301,11 @@ function settingsSheet(){
 }
 document.addEventListener("click", e => {
   const b = e.target.closest("button"); if(!b) return; const d=b.dataset;
-  if(d.iview){ itinView=d.iview; render(); return; }
+  if(d.iview){ itinView=d.iview; resetItinSel(); render(); return; }
+  if(d.iday){ itinSel = itinSel===d.iday ? null : d.iday; itinSelNew = !!itinSel; render(); return; }
+  if("iclose" in d){ itinSel=null; render(); return; }
   if(d.idate){ itinDate=d.idate; if(d.iv) itinView=d.iv; tlScrolled=null; render(); return; }
-  if(d.ishift){ const n=+d.ishift; itinDate = itinView==="day"?shiftDate(itinDate,n):itinView==="week"?shiftDate(itinDate,7*n):todayStr(new Date(dateObj(itinDate).getFullYear(), dateObj(itinDate).getMonth()+n, 1)); tlScrolled=null; render(); return; }
+  if(d.ishift){ const n=+d.ishift; itinDate = itinView==="day"?shiftDate(itinDate,n):itinView==="week"?shiftDate(itinDate,7*n):todayStr(new Date(dateObj(itinDate).getFullYear(), dateObj(itinDate).getMonth()+n, 1)); tlScrolled=null; if(!visibleInItin(itinSel)) itinSel=null; render(); return; }
   if("fill" in d){
     if(itinView==="week"){ const ds=dateObj(itinDate); let n=0; for(let k=0;k<7;k++){ const x=new Date(ds); x.setDate(ds.getDate()-ds.getDay()+k); const xs=todayStr(x); if(xs>=todayStr() && !(S.restDays||[]).includes(k)) n+=fillDay(xs,true); } save(); render(); toast(n?`Proposed ${n} placements across the week. Open a day to keep them.`:"Nothing left to place this week."); return; }
     plansFor(itinDate).filter(p=>p.proposed); const n=fillDay(itinDate,true); save(); render(); toast(n?`Proposed ${n} placement${n>1?"s":""}. Keep or drag to adjust.`:"Nothing fits, or nothing left to place."); return; }
